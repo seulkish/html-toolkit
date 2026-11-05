@@ -40,7 +40,7 @@ from playwright.sync_api import sync_playwright, Error as PWError
 from tqdm import tqdm
 
 # ───────────── 설정 ─────────────
-HTML_DIR = Path("html_edit")  # 검수할 html 파일이 있는 폴더
+HTML_DIR = Path("1~100_v2")  # 검수할 html 파일이 있는 폴더
 RESULT_DIR = Path("results")
 EDIT_DIR = HTML_DIR.resolve().parent / "html_edit"  # '정상'이 아닌 파일을 옮길 폴더
 MOVE_NOT_OK = True                                 # 이동 기능 끄려면 False
@@ -55,6 +55,11 @@ REPORT_NO_RESPONSE = True    # '클릭해도 반응 없음'을 기록할지
 SHOW_LOCATION = True         # 내용 뒤에 발생 위치(화면 > 요소)를 붙일지
 MAX_LOCATIONS = 3            # 같은 내용이 여러 곳에서 나올 때 표시할 위치 수
 LEVEL_ORDER = ["오류", "경고", "주의"]
+SETTLE_MAX_MS = 3000         # 화면이 스스로 바뀌는 동작(지도 타일 페이드인 등)이 멈출 때까지 기다리는 최대 시간
+SETTLE_POLL_MS = 200         # 안정 여부를 확인하는 간격
+# 링크 주소가 '아무 데도 안 감'인 값. 같은 패턴으로 묶지 않고 하나하나 검사
+DEAD_HREFS = ("#", "", "javascript:;", "javascript:void(0)", "javascript:void(0);", "javascript:void 0")
+CLICK_EVENT_TYPES = ("click", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "touchend")
 # ────────────────────────────────
 
 CLICKABLE_SELECTOR = (
@@ -358,6 +363,49 @@ class FileTester:
         self.page.goto("about:blank")
         self.page.goto(url, wait_until="load")
         self.page.wait_for_timeout(LOAD_WAIT_MS)
+        self.wait_settled()
+
+    def wait_settled(self):
+        """
+        화면 지문이 연속 두 번 같아질 때까지 대기.
+        지도 타일 페이드인처럼 '클릭과 무관하게' 바뀌는 DOM을 클릭 반응으로 오인하지 않기 위함.
+        """
+        prev, waited = state_hash(self.page), 0
+        while waited < SETTLE_MAX_MS:
+            self.page.wait_for_timeout(SETTLE_POLL_MS)
+            waited += SETTLE_POLL_MS
+            cur = state_hash(self.page)
+            if cur == prev:
+                return True
+            prev = cur
+        return False
+
+    def has_click_handler(self, qa_id):
+        """
+        요소 자신~조상~document~window 중 어디에도 클릭 계열 이벤트 리스너가 없으면 False.
+        (onclick 속성, addEventListener, 부모 위임 방식 모두 포함. Chromium CDP 사용)
+        확인 자체가 실패하면 None.
+        """
+        try:
+            if getattr(self, "_cdp", None) is None:
+                self._cdp = self.context.new_cdp_session(self.page)
+            cdp = self._cdp
+            expr = ("(() => { const a = []; let e = document.querySelector('[data-qa-id=\"%s\"]');"
+                    " if (!e) return null; while (e) { a.push(e); e = e.parentNode; } a.push(window); return a; })()" % qa_id)
+            res = cdp.send("Runtime.evaluate", {"expression": expr})
+            oid = res.get("result", {}).get("objectId")
+            if not oid:
+                return None
+            props = cdp.send("Runtime.getProperties", {"objectId": oid, "ownProperties": True})
+            for prop in props["result"]:
+                if not prop["name"].isdigit():
+                    continue
+                ls = cdp.send("DOMDebugger.getEventListeners", {"objectId": prop["value"]["objectId"]})["listeners"]
+                if any(l["type"] in CLICK_EVENT_TYPES for l in ls):
+                    return True
+            return False
+        except PWError:
+            return None
 
     def flush_errors(self, where):
         """events 중 에러성 항목을 기록하고 나머지(다운로드 등)를 반환"""
@@ -429,7 +477,8 @@ class FileTester:
                     if sig in tested:
                         continue
                     tested.add(sig)
-                    key = (el["tag"], pattern(el["onclick"]) or pattern(el["href"]) or el["text"])
+                    href_key = "" if el["href"].strip() in DEAD_HREFS else pattern(el["href"])
+                    key = (el["tag"], pattern(el["onclick"]) or href_key or el["text"])
                     pat_count[key] += 1
                     if pat_count[key] > SAME_PATTERN_LIMIT:
                         continue
@@ -457,17 +506,24 @@ class FileTester:
                     dirty = True
                     self.bar.update(1)
                     continue
+                handler = self.has_click_handler(el["id"])   # 클릭 전에 확인(클릭 후엔 화면이 바뀔 수 있음)
                 loc.first.click(timeout=2000)
                 self.page.wait_for_timeout(CLICK_WAIT_MS)
+                self.wait_settled()
                 after_url = self.page.url
                 if after_url.startswith("chrome-error"):
                     self.add("오류", where, "클릭 시 페이지 이동 실패")
                 after_state = state_hash(self.page)
                 rest = self.flush_errors(where)
                 self.check_downloads(rest, where)
-                changed = (before_url != after_url) or (before_state != after_state) or bool(rest)
-                if not changed and el["href"] == "#":
-                    self.add("주의", where, "href='#' 링크 클릭 시 반응 없음")
+                # 'page.html' → 'page.html#'처럼 해시만 바뀐 것은 화면이 그대로면 반응이 아님
+                # (앵커 이동이면 스크롤이, 해시 라우터면 DOM이 바뀌므로 state에서 잡힘)
+                url_changed = before_url.split("#", 1)[0] != after_url.split("#", 1)[0]
+                changed = url_changed or (before_state != after_state) or bool(rest)
+                if not changed and handler is False:
+                    self.add("경고", where, "클릭해도 반응 없음(연결된 클릭 이벤트가 전혀 없음 — 미구현 메뉴/버튼)")
+                elif not changed and el["href"].strip() in DEAD_HREFS and el["href"].strip():
+                    self.add("주의", where, f"href='{el['href']}' 링크 클릭 시 반응 없음")
                 elif not changed and REPORT_NO_RESPONSE:
                     self.add("경고", where, "클릭해도 반응 없음")
                 dirty = changed
@@ -523,11 +579,13 @@ class FileTester:
                 before_url, before_state = self.page.url, state_hash(self.page)
                 self.page.evaluate("(i) => { const f = document.querySelectorAll('form')[i]; f.requestSubmit ? f.requestSubmit() : f.submit(); }", idx)
                 self.page.wait_for_timeout(CLICK_WAIT_MS + 200)
+                self.wait_settled()
                 if self.page.url.startswith("chrome-error"):
                     self.add("오류", where, "제출 후 페이지 이동 실패")
                 rest = self.flush_errors(where)
                 self.check_downloads(rest, where)
-                changed = before_url != self.page.url or before_state != state_hash(self.page) or bool(rest)
+                changed = (before_url.split("#", 1)[0] != self.page.url.split("#", 1)[0]
+                           or before_state != state_hash(self.page) or bool(rest))
                 if not changed:
                     invalid = self.page.evaluate("(i) => !document.querySelectorAll('form')[i]?.checkValidity()", idx)
                     if invalid:
@@ -582,6 +640,10 @@ class FileTester:
         return "정상"
 
 def move_to_edit(files):
+    if EDIT_DIR.resolve() == HTML_DIR.resolve():
+        # 검수 폴더와 이동 폴더가 같으면 이동 대신 '_1' 이름 변경만 반복되므로 건너뜀
+        print(f"  이동 건너뜀: 검수 폴더와 이동 폴더가 같습니다({EDIT_DIR})")
+        return []
     EDIT_DIR.mkdir(exist_ok=True)
     moved = []
     for f in files:
