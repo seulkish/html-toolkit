@@ -25,6 +25,7 @@ HTML 목업 자동 검수기 (Playwright + tqdm)
 import csv
 import hashlib
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -39,8 +40,10 @@ from playwright.sync_api import sync_playwright, Error as PWError
 from tqdm import tqdm
 
 # ───────────── 설정 ─────────────
-HTML_DIR = Path("html_input")  # 검수할 html 파일이 있는 폴더
+HTML_DIR = Path("html_edit")  # 검수할 html 파일이 있는 폴더
 RESULT_DIR = Path("results")
+EDIT_DIR = HTML_DIR.resolve().parent / "html_edit"  # '정상'이 아닌 파일을 옮길 폴더
+MOVE_NOT_OK = True                                 # 이동 기능 끄려면 False
 SERVE_ROOT = HTML_DIR.resolve().parent   # 웹서버 루트. html에서 ../css 처럼 상위 폴더를 참조해도 열리도록
 HEADLESS = True              # 브라우저 화면을 보고 싶으면 False
 MAX_ROUTES = 40              # 파일당 탐색할 최대 화면 수
@@ -578,6 +581,21 @@ class FileTester:
                 return lv
         return "정상"
 
+def move_to_edit(files):
+    EDIT_DIR.mkdir(exist_ok=True)
+    moved = []
+    for f in files:
+        dest = EDIT_DIR / f.name
+        n = 1
+        while dest.exists():  # 같은 이름이 이미 있으면 _1, _2 붙임
+            dest = EDIT_DIR / f"{f.stem}_{n}{f.suffix}"
+            n += 1
+        try:
+            shutil.move(str(f), str(dest))
+            moved.append((f.name, dest.name))
+        except OSError as e:
+            print(f"  이동 실패: {f.name} ({e})")
+    return moved
 
 def main():
     files = sorted(HTML_DIR.glob("*.html")) + sorted(HTML_DIR.glob("*.htm"))
@@ -590,6 +608,7 @@ def main():
 
     rows = []
     summary = Counter()
+    not_ok_files = [] 
     start = time.time()
     server, origin = start_server(SERVE_ROOT)
     try:
@@ -604,6 +623,8 @@ def main():
                 rows += t.rows()
                 worst = t.worst_level()
                 summary[worst] += 1
+                if worst != "정상":
+                    not_ok_files.append(f)
                 cnt = Counter(lv for lv, _ in t.findings)
                 tqdm.write(f"  {f.name}: {worst} (화면 {n_routes}개, 오류 {cnt['오류']}, 경고 {cnt['경고']}, 주의 {cnt['주의']})")
             inner_bar.close()
@@ -622,6 +643,11 @@ def main():
           f"주의 {summary['주의']} / 정상 {summary['정상']}  ({time.time()-start:.0f}초)")
     print("  (파일별로 가장 심각한 구분 기준으로 집계)")
     print(f"결과: {out_csv}")
+    if MOVE_NOT_OK and not_ok_files:
+        moved = move_to_edit(not_ok_files)
+        print(f"정상 아닌 파일 {len(moved)}개를 '{EDIT_DIR}'로 이동:")
+        for old, new in moved:
+            print(f"  이름 변경: {old} → {new}")
 
 
 if __name__ == "__main__":
