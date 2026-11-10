@@ -105,6 +105,10 @@ SETTLE_POLL_MS = 200         # 안정 여부를 확인하는 간격
 # 링크 주소가 '아무 데도 안 감'인 값. 같은 패턴으로 묶지 않고 하나하나 검사
 DEAD_HREFS = ("#", "", "javascript:;", "javascript:void(0)", "javascript:void(0);", "javascript:void 0")
 CLICK_EVENT_TYPES = ("click", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "touchend")
+LIVE_PRINT = True            # 파일 하나 끝날 때마다 문제 내용을 터미널에 바로 출력
+LIVE_PRINT_MAX = 15          # 파일당 터미널에 보여줄 최대 줄 수(전체 내용은 CSV에 있음)
+PER_FILE_CSV = True          # 파일마다 results/파일별_시각/이름.csv 따로 저장(검사 중 엑셀로 열어도 안전)
+MOVE_IMMEDIATELY = False     # True면 정상 아닌 파일을 끝나자마자 html_edit로 이동(아래 주의 참고)
 # ────────────────────────────────
 
 CLICKABLE_SELECTOR = (
@@ -1763,7 +1767,104 @@ def move_to_edit(files):
             print(f"  이동 실패: {f.name} ({e})")
     return moved
 
+def print_problems(file_rows):
+    """방금 끝난 파일의 수정·오류·경고·주의 내용을 터미널에 출력"""
+    probs = [r for r in file_rows if r[1] in ("수정", "오류", "경고", "주의")]
+    for r in probs[:LIVE_PRINT_MAX]:
+        tqdm.write(f"     [{r[1]}] {r[2][:150]}")
+    if len(probs) > LIVE_PRINT_MAX:
+        tqdm.write(f"     … 외 {len(probs) - LIVE_PRINT_MAX}건 (CSV 참고)")
+
 def main():
+    files = sorted(HTML_DIR.glob("*.html")) + sorted(HTML_DIR.glob("*.htm"))
+    if not files:
+        print(f"'{HTML_DIR}' 폴더에 html 파일이 없습니다.")
+        return
+    RESULT_DIR.mkdir(exist_ok=True)
+    stamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    out_csv = RESULT_DIR / f"result_{stamp}.csv"
+    header = ["파일명", "구분", "내용"] + (["수동 체크 흐름"] + CHECK_COLUMNS if DETAIL_COLUMNS else [])
+    live_csv = _write_csv(out_csv, header, [])          # 헤더만 먼저 만들어 둠
+    per_dir = RESULT_DIR / f"파일별_{stamp}"
+    if PER_FILE_CSV:
+        per_dir.mkdir(exist_ok=True)
+    print(f"파일 하나가 끝날 때마다 저장: {out_csv}" + (f" / {per_dir}" if PER_FILE_CSV else ""))
+
+    rows = []
+    cal_summary = Counter()
+    work_summary = Counter()
+    summary = Counter()
+    not_ok_files = []
+    moved = []
+    start = time.time()
+    server, origin = start_server(SERVE_ROOT)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=HEADLESS)
+            file_bar = tqdm(files, desc="전체 파일", unit="file", position=0, ncols=100)
+            inner_bar = tqdm(total=1, desc="  ├ 준비", position=1, ncols=100, leave=False)
+            for f in file_bar:
+                file_bar.set_postfix_str(f.name[:30])
+                t = FileTester(browser, f, origin, inner_bar)
+                n_routes = t.run()
+                file_rows = t.rows()
+                rows += file_rows
+
+                # ── 끝나자마자 저장 ──
+                live_csv = _write_csv(live_csv, header, file_rows, mode="a")
+                if PER_FILE_CSV:
+                    _write_csv(per_dir / f"{f.name}.csv", header, file_rows)
+
+                worst = t.worst_level()
+                summary[worst] += 1
+                fix_cats = t.fix_categories()
+                not_ok = (worst != "정상" or (MOVE_FIX and fix_cats)
+                          or (MOVE_REQUIREMENT_MISMATCH and "불일치" in t.cal_status))
+                for cat in fix_cats:
+                    work_summary[cat] += 1
+                for st in t.cal_status:
+                    cal_summary[st] += 1
+                if t.cal_status:
+                    cal_summary["파일"] += 1
+
+                # ── 끝나자마자 터미널에 출력 ──
+                cnt = Counter(lv for lv, _ in t.findings)
+                tqdm.write(f"  {f.name}: {worst} (화면 {n_routes}개, 오류 {cnt['오류']}, 경고 {cnt['경고']}, "
+                           f"주의 {cnt['주의']})")
+                if LIVE_PRINT:
+                    print_problems(file_rows)
+
+                if not_ok:
+                    if MOVE_NOT_OK and MOVE_IMMEDIATELY:
+                        m = move_to_edit([f])
+                        moved += m
+                        for old, new in m:
+                            tqdm.write(f"     → '{EDIT_DIR.name}' 폴더로 이동: {new}")
+                    else:
+                        not_ok_files.append(f)
+            inner_bar.close()
+            file_bar.close()
+            browser.close()
+    finally:
+        server.shutdown()
+
+    out_csv = _write_csv(out_csv, header, rows)   # 마지막에 전체를 한 번 더 깔끔하게 저장
+
+    print(f"\n완료: {len(files)}개 파일 / 오류 {summary['오류']} / 경고 {summary['경고']} / "
+          f"주의 {summary['주의']} / 정상 {summary['정상']}  ({time.time()-start:.0f}초)")
+    print("  (파일별로 가장 심각한 구분 기준으로 집계)")
+    if work_summary:
+        print("구분='수정' 파일 수: " + " / ".join(f"{k} {v}개" for k, v in work_summary.most_common()))
+    if CALENDAR_CHECK:
+        print(f"캘린더({CALENDAR_START} ~ {CALENDAR_END}, {CALENDAR_MODE}): 발견 파일 {cal_summary['파일']}개 / "
+              f"불일치 포함 {cal_summary['불일치']}개 / 확인 필요 포함 {cal_summary['확인 필요']}개 (구분='수정' + 내용 '캘린더'로 필터)")
+    print(f"결과: {out_csv}")
+    if MOVE_NOT_OK and not_ok_files:
+        moved += move_to_edit(not_ok_files)
+    if moved:
+        print(f"정상 아닌 파일·'수정' 파일 {len(moved)}개를 '{EDIT_DIR}'로 이동:")
+        for old, new in moved:
+            print(f"  이동: {old}" if old == new else f"  이동(이름 변경): {old} → {new}")
     files = sorted(HTML_DIR.glob("*.html")) + sorted(HTML_DIR.glob("*.htm"))
     if not files:
         print(f"'{HTML_DIR}' 폴더에 html 파일이 없습니다.")
