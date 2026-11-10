@@ -21,8 +21,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-# ===== 기본 설정: 여기만 고치면 됩니다 =====
-# 상대 경로는 이 스크립트가 있는 폴더 기준입니다. "." = 스크립트와 같은 폴더
+# ===== 기본 폴더 설정 =====================
 HTML_FOLDER = "html"
 CSV_FILE = "input_html.csv"
 # ==========================================

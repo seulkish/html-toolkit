@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 # ──────────────────────────────────────────────
 # 설정값 (필요하면 여기만 바꾸면 됩니다)
 # ──────────────────────────────────────────────
-HTML_FOLDER = "html"          # HTML 파일이 들어 있는 폴더
+HTML_FOLDER = "html_input_files"          # HTML 파일이 들어 있는 폴더
 OUTPUT_CSV = "result.csv"     # 결과 CSV 파일명
 
 # 기능 사전: {기능명: [이 기능이 있다고 볼 단어들]}
