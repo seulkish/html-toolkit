@@ -56,6 +56,7 @@ HEADLESS = True              # 브라우저 화면을 보고 싶으면 False
 MAX_ROUTES = 40              # 파일당 탐색할 최대 화면 수
 MAX_CLICKS_PER_FILE = 300    # 파일당 최대 클릭 수
 CLICK_WAIT_MS = 250          # 클릭 후 반응 대기 시간
+SUBMIT_WAIT_MS = 500         # 제출 후 화면 변화가 없을 때 추가로 기다릴 최대 시간
 LOAD_WAIT_MS = 150           # 화면 이동 후 렌더링 대기 시간
 SAME_PATTERN_LIMIT = 2       # 같은 모양 요소/화면(예: 목록의 상세보기 50개)은 몇 개만 샘플 검사
 REPORT_NO_RESPONSE = True    # '클릭해도 반응 없음'을 기록할지
@@ -183,6 +184,30 @@ TAG_ELEMENTS_JS = """
 
 # 화면 내용 + 스크롤 위치 + 포커스까지 비교('맨 위로' 버튼 같은 동작도 반응으로 인정)
 STATE_JS = "() => document.body ? Math.round(window.scrollY) + '|' + (document.activeElement && document.activeElement.id) + '|' + document.body.innerHTML : ''"
+# 겉모습(위치·크기·색·투명도) 서명: innerHTML이 같아도 CSS만 바뀐 경우를 반응으로 잡기 위함
+VISUAL_JS = """() => {
+  if (!document.body) return '';
+  const de = document.documentElement, out = [document.title, de.className, de.getAttribute('style') || ''];
+  let n = 0;
+  for (const el of document.body.querySelectorAll('*')) {
+    if (++n > 1500) break;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const s = getComputedStyle(el);
+    out.push([el.tagName, Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height),
+              s.opacity, s.color, s.backgroundColor, s.transform, el.scrollTop].join(','));
+  }
+  return out.join(';');
+}"""
+# 이미 선택된 항목(탭·필터·현재 페이지 번호 등)인지: 눌러도 변화 없는 것이 정상이라 '반응 없음' 경고에서 구분
+SELECTED_JS = r"""(el) => {
+  const a = (n) => el.getAttribute(n);
+  if (a('aria-pressed') === 'true' || a('aria-selected') === 'true' || a('aria-checked') === 'true') return true;
+  const cur = a('aria-current');
+  if (cur !== null && cur !== 'false') return true;
+  const cls = typeof el.className === 'string' ? el.className : '';
+  return /(^|[\s_-])(active|selected|current|on)($|[\s_-])/i.test(cls);
+}"""
 # 클릭 판정용: 입력칸에 JS로 넣은 값(el.value = ...)은 innerHTML에 안 나타나므로 값·체크 상태를 따로 붙임
 # (예: '체험 계정 자동 입력' 버튼이 아이디·비밀번호를 채워도 '반응 없음'으로 잡히던 문제)
 FIELD_VALUES_JS = """() => [...document.querySelectorAll('input, textarea, select')]
@@ -470,6 +495,16 @@ LOGIN_STATE_JS = """
   const vis = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
   const norm = (t) => (t || '').trim().replace(/\\s+/g, ' ').toLowerCase();
+  // 투명·화면 밖·숨김 조상 아래에 있는 요소는 '보임'으로 보지 않음
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0 || r.right <= 0 || r.left >= innerWidth) return false;
+    for (let e = el; e && e !== document.documentElement; e = e.parentElement) {
+      const st = getComputedStyle(e);
+      if (st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) return false;
+    }
+    return true;
+  };
 """ + LOGOUT_CONTROL_JS + """
   const guest = [];
   for (const el of document.querySelectorAll('a, button, [role=button], input[type=button], input[type=submit], [onclick]')) {
@@ -494,7 +529,7 @@ LOGIN_STATE_JS = """
     typedVisible: typed.filter(vis).length, typedAny: typed.length,
     guestSel: guestSel.filter(sel => vis(q(sel))),
     memberSel: memberSel.filter(sel => vis(q(sel))),
-    loginFormVisible: Boolean(findLoginForm(loginName)),
+    loginFormVisible: (() => { const f = findLoginForm(loginName); return !!f && shown(f); })(),
   };
 }
 """
@@ -721,6 +756,21 @@ def state_hash(page, with_values=False):
         return hashlib.md5(text.encode("utf-8")).hexdigest()
     except PWError:
         return ""
+
+
+def visual_hash(page):
+    try:
+        return hashlib.md5(page.evaluate(VISUAL_JS).encode("utf-8")).hexdigest()
+    except PWError:
+        return ""
+
+
+def reaction_detail(url_ch, dom_ch, vis_ch, has_event, vis_skipped=False, with_values=True):
+    """'반응 없음' 판정에 쓴 비교 항목별 결과를 한 줄로 만듦"""
+    yn = lambda ch: "변화 있음" if ch else "변화 없음"
+    vis = "겉모습 비교 제외(화면이 혼자 움직여 구분 불가)" if vis_skipped else f"겉모습(위치·색·투명도) {yn(vis_ch)}"
+    return (f"주소 {yn(url_ch)} / 화면 구조{'·입력값' if with_values else ''} {yn(dom_ch)} / {vis} / "
+            f"알림·새 탭·다운로드 {'있음' if has_event else '없음'}")
 
 
 def pattern(text):
@@ -1068,8 +1118,20 @@ class FileTester:
         loc = self.page.locator(selector)
         if loc.count() == 0:
             return None
+        try:
+            loc.first.hover(timeout=1000)   # hover 효과를 클릭 반응으로 오인하지 않도록 먼저 올려 둠
+        except PWError:
+            pass
+        self.page.wait_for_timeout(120)
+        before_visual = visual_hash(self.page)
+        self.page.wait_for_timeout(150)
+        animated = before_visual != visual_hash(self.page)   # 혼자 움직이는 화면은 겉모습 비교 제외
         before_url, before_state = self.page.url, state_hash(self.page, with_values=True)
         handler = self.has_click_handler(selector)   # 클릭 전에 확인(클릭 후엔 화면이 바뀔 수 있음)
+        try:
+            selected = bool(loc.first.evaluate(SELECTED_JS))   # 클릭 전 상태로 확인(클릭 후엔 바뀔 수 있음)
+        except PWError:
+            selected = False
         try:
             loc.first.click(timeout=2000)
         except PWError as e:
@@ -1081,6 +1143,8 @@ class FileTester:
             self.page.wait_for_timeout(500)
             loc.first.evaluate("e => e.scrollIntoView({block: 'center'})")
             before_url, before_state = self.page.url, state_hash(self.page, with_values=True)
+            before_visual = visual_hash(self.page)
+            animated = False
             loc.first.click(timeout=2000)
         self.clicks_used += 1
         self.page.wait_for_timeout(CLICK_WAIT_MS)
@@ -1093,7 +1157,8 @@ class FileTester:
         self.check_downloads(rest, where, step)
         # 'page.html' → 'page.html#'처럼 해시만 바뀐 것은 화면이 그대로면 반응이 아님
         url_changed = before_url.split("#", 1)[0] != after_url.split("#", 1)[0]
-        changed = url_changed or (before_state != after_state) or bool(rest)
+        visual_changed = (not animated) and before_visual != visual_hash(self.page)
+        changed = url_changed or (before_state != after_state) or bool(rest) or visual_changed
         href = (href or "").strip()
         if not changed and self.last_had_error:
             pass   # 오류가 이미 원인으로 기록됨('반응 없음' 중복 방지)
@@ -1103,9 +1168,16 @@ class FileTester:
         elif not changed and href in DEAD_HREFS and href:
             self.add("주의", where, f"href='{href}' 링크 클릭 시 반응 없음",
                      f"{step} → 의도된 빈 링크인지 확인(아니면 실제 주소·동작 연결)")
+        elif not changed and selected:
+            self.add("수동", where, "이미 선택된 항목이라 클릭해도 변화 없음(정상일 가능성 높음)",
+                     f"{step} → 다른 항목으로 바꾼 뒤 이 항목을 다시 눌러 정상 전환되는지 확인")
         elif not changed and REPORT_NO_RESPONSE:
-            self.add("경고", where, "클릭해도 반응 없음",
-                     f"{step} → 1~2초 기다려 화면 변화·알림·이동이 있는지 확인")
+            self.add("경고", where,
+                     "클릭해도 반응 없음 · 클릭 전후로 주소·화면 구조·입력값·겉모습·알림을 비교했으나 변화 없음",
+                     f"{step} → 1~2초 기다려 화면 변화·알림·이동이 있는지 확인"
+                     f" | 판정 근거: {reaction_detail(url_changed, before_state != after_state, visual_changed, bool(rest), animated)}"
+                     f" / 클릭 후 {CLICK_WAIT_MS}ms + 화면 안정 대기"
+                     f" / 추정: 반응이 더 늦게 나타나거나, 잠깐 떴다 사라지는 안내이거나, 새 탭·화면 밖에서 일어나는 변화일 수 있음")
         return changed, url_changed
 
     def _new_clickables(self, url):
@@ -1324,6 +1396,7 @@ class FileTester:
         label = self.page.evaluate(SUBMIT_TARGET_JS, [idx, "submit", PRECHECK_RE])
         info["via"] = label
         before_url, before_state = self.page.url, state_hash(self.page)
+        before_visual = visual_hash(self.page)
         before_text = set(self.page.evaluate(TEXT_LINES_JS))
         if label:
             self._press("[data-qa-submit]")
@@ -1336,12 +1409,42 @@ class FileTester:
         except PWTimeout as e:
             raise PWError("제출 처리 중 상태가 12초 안에 해제되지 않음") from e
         self.wait_settled()
+
+        def _changed():
+            return (before_url != self.page.url or before_state != state_hash(self.page)
+                    or before_visual != visual_hash(self.page))
+        waited = 0
+        while not _changed() and not self.events and waited < SUBMIT_WAIT_MS:   # 느린 응답 대기
+            self.page.wait_for_timeout(100)
+            waited += 100
         try:
             new_text = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before_text]
         except PWError:
             new_text = []
-        changed = before_url != self.page.url or before_state != state_hash(self.page)
+        url_ch = before_url != self.page.url
+        dom_ch = before_state != state_hash(self.page)
+        vis_ch = before_visual != visual_hash(self.page)
+        changed = url_ch or dom_ch or vis_ch
+        self.last_submit = {   # '반응 없음' 메시지에 근거로 보여 줄 값
+            "via": label, "used": info.get("used") or {}, "url": url_ch, "dom": dom_ch, "vis": vis_ch,
+            "events": any(k not in ("jserror", "console", "resource", "brokenlink") for k, _ in self.events),
+            "waited": CLICK_WAIT_MS + 200 + waited,
+        }
         return info, changed, new_text, []
+
+    def _submit_detail(self):
+        """직전 제출의 눌린 버튼·입력값·비교 결과·대기 시간을 '확인 방법' 칸에 붙일 글로 만듦"""
+        d = getattr(self, "last_submit", None)
+        if not d:
+            return ""
+        names = {"id": "아이디", "email": "이메일", "password": "비밀번호", "name": "이름", "phone": "전화번호"}
+        used = ", ".join(names.get(k, k) if k == "password" else f"{names.get(k, k)}({v})"
+                         for k, v in d["used"].items()) or "없음"
+        via = f"'{d['via']}' 버튼 클릭" if d["via"] else "제출 버튼을 못 찾아 폼 제출 이벤트(requestSubmit)로 제출"
+        return (f" | 눌린 버튼: {via} / 자동 입력한 값: {used}"
+                f" / 판정 근거: {reaction_detail(d['url'], d['dom'], d['vis'], d['events'], with_values=False)}"
+                f" / 제출 후 {d['waited']}ms 이상 대기"
+                f" / 추정: 응답이 더 늦게 오거나, 잠깐 떴다 사라지는 안내이거나, 화면에 드러나지 않는 처리(저장만 하는 경우)일 수 있음")
 
     @staticmethod
     def _duplicate_message(new_text, dialogs):
@@ -1416,10 +1519,14 @@ class FileTester:
                         self.add("경고", where, "테스트 값을 넣어도 입력 검증을 통과하지 못함(필수값/형식 확인 필요)",
                                  f"{fstep} → 어떤 칸에서 막히는지(빨간 안내) 확인 → required·pattern·minlength 조건 확인")
                     elif peek["pw"]:
-                        self.add("오류", where, "제출해도 반응 없음(로그인/가입 처리 안 됨)",
-                                 f"{fstep} → 완료 문구·화면 전환이 있는지 확인")
+                        self.add("오류", where,
+                                 "제출해도 반응 없음(로그인/가입 처리 안 됨) · 값을 자동 입력해 제출했으나 "
+                                 "주소·화면 구조·겉모습·알림 모두 변화 없음(입력 규칙 검증은 통과)",
+                                 f"{fstep} → 완료 문구·화면 전환이 있는지 확인" + self._submit_detail())
                     else:
-                        self.add("경고", where, "제출해도 반응 없음", f"{fstep} → 결과 화면·메시지가 있는지 확인")
+                        self.add("경고", where,
+                                 "제출해도 반응 없음 · 값을 자동 입력해 제출했으나 주소·화면 구조·겉모습·알림 모두 변화 없음",
+                                 f"{fstep} → 결과 화면·메시지가 있는지 확인" + self._submit_detail())
                 elif peek["pw"]:
                     fail = self._fail_message(new_text, dialogs)
                     if fail and not peek["signup"]:
@@ -1704,9 +1811,11 @@ class FileTester:
                 self.add(level, where, f"회원가입한 계정으로 로그인 실패: '{fail}'{note}{tried_note}",
                          flow + f" → '{fail}' 대신 로그인 완료가 되는지 확인(가입 정보 저장·비교 코드 확인)")
             elif not (changed or rest):
-                self.add(level, where, f"회원가입 후 같은 계정으로 로그인해도 반응 없음{note}",
-                         flow + " → 로그인 완료 화면·문구가 나오는지 확인")
+                self.add(level, where,
+                         f"회원가입 후 같은 계정으로 로그인해도 반응 없음 · 로그인 제출 후 주소·화면 구조·겉모습·알림 모두 변화 없음{note}",
+                         flow + " → 로그인 완료 화면·문구가 나오는지 확인" + self._submit_detail())
             else:
+                self.page.wait_for_timeout(400)   # 로그인 창이 닫히는 애니메이션이 끝나길 기다림
                 after = self._login_state(l["name"])
                 has_member_marker = (
                     after and guest_state
