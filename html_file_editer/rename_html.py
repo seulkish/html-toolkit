@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ===== 기본 폴더 설정 =====================
-HTML_FOLDER = "html"
+HTML_FOLDER = "html_input_files" # HTML 파일이 있는 폴더
 CSV_FILE = "input_html.csv"
 # ==========================================
 
