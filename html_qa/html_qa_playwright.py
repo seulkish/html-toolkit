@@ -24,7 +24,18 @@ HTML 목업 자동 검수기 (Playwright + tqdm)
            다른 요소에 가려져 클릭 불가, CDN 로드 실패 영향일 수 있는 JS 오류 등)
     (캘린더 범위 점검 결과: 불일치 → 수정, 일치 → 정상, 자동 판정 불가 → 주의)
     정상 : 자동 검사로 발견된 오류·경고·주의 없음
+           (로그인·인증창이 실제로 동작하면 '로그인: … 정상 동작'처럼 통과 내용도 '정상' 행에 함께 적음)
 
+_edit 버전에서 바뀐 점
+    - 체험 계정 우선: 로그인 폼에 체험(데모) 계정이 있으면 그 계정으로 먼저 로그인
+      (① 처음부터 채워진 값 ② '체험 계정' 자동 입력 버튼 ③ 화면에 적힌 계정 안내)
+    - 회원가입: 가입 폼이 처음부터 보이지 않으면 로그인 화면의 '회원가입' 버튼·링크를 눌러 열고 가입 → 같은 계정으로 로그인
+      (<form> 태그 없이 만든 가입 화면도 입력칸을 직접 찾아 입력)
+    - 인증창: '인증번호 받기 → 번호 입력 → 확인'이 실제로 되는지 확인(인증창이 뜨는 것 자체는 오류가 아님)
+    - 진행률: 전체 N단계 중 몇 단계인지, 몇 번째 파일인지 표시
+    - 종료 후 '비정상(주의, 오류, 경고, 수정)' 건수를 터미널 마지막 줄에 출력
+    - '클릭해도 반응 없음'·'다른 요소에 가려져 클릭 불가'를 근거와 함께 구분: 늦은 반응·저장만 하는 버튼은 반응으로 인정,
+      일시적으로 덮는 로딩 막은 기다렸다가 클릭, 가리는 요소의 정체(위치·z-index·화면 비율)를 메시지에 표시
 """
 
 import calendar
@@ -62,7 +73,7 @@ SAME_PATTERN_LIMIT = 2       # 같은 모양 요소/화면(예: 목록의 상세
 REPORT_NO_RESPONSE = True    # '클릭해도 반응 없음'을 기록할지
 SHOW_LOCATION = True         # 내용 뒤에 발생 위치(화면 > 요소)를 붙일지
 MAX_LOCATIONS = 3            # 같은 내용이 여러 곳에서 나올 때 표시할 위치 수
-LEVEL_ORDER = ["오류", "경고", "주의", "요구사항", "수동"]
+LEVEL_ORDER = ["오류", "경고", "주의", "요구사항", "수동", "통과"]
 ROW_ORDER = ["수정", "오류", "경고", "주의", "수동", "정상"]   # 결과 CSV에 보이는 순서
 SHOW_MANUAL = False          # True면 '자동 검사가 못 본 곳(수동)' 행도 결과 CSV에 표시
 CALENDAR_CHECK = True        # 캘린더 표시 범위 점검(부장님 지시)
@@ -84,9 +95,9 @@ MAX_HOVER_TESTS = 30         # 파일당 hover 메뉴 검사 최대 수
 LOGIN_CHAIN_TEST = True      # 회원가입 폼 + 로그인 폼이 있으면 '가입 → 같은 값으로 로그인'을 이어서 검사
 # 폼에 자동으로 넣을 테스트 계정. 입력칸의 라벨·placeholder·id·name을 보고 알맞은 값을 골라 넣음
 TEST_ACCOUNT = {
-    "id": "test",                 # 아이디 칸
-    "email": "test@test.com",     # 이메일 칸
-    "password": "test123456",     # 비밀번호·비밀번호 확인 칸
+    "id": "hello",                # 아이디 칸
+    "email": "hello@naver.com",   # 이메일 칸
+    "password": "hello123456",    # 비밀번호·비밀번호 확인 칸
     "name": "안뇽",               # 이름·닉네임 칸
     "phone": "010-1234-5678",     # 전화번호 칸
 }
@@ -116,7 +127,7 @@ GUEST_RECORD_WORDS = ("담기", "장바구니", "찜", "즐겨찾기", "저장",
 GUEST_ACTION_MAX = 5
 GUEST_FORM_MAX = 2           # 비밀번호 없는 폼(검색·메모 등)도 비회원으로 최대 몇 개 제출해 볼지
 CHECK_COLUMNS = ["확인결과(O/X)", "확인자", "비고"]     # 사람이 채우는 칸(빈칸으로 출력)
-FIX_CATEGORIES = ("로그인", "캘린더")   # 이 기능의 문제는 구분='수정'으로 모음
+FIX_CATEGORIES = ("로그인", "인증", "캘린더")   # 이 기능의 문제는 구분='수정'으로 모음
 DETAIL_COLUMNS = False       # True면 '수동 체크 흐름'·확인결과·확인자·비고 칸을 뒤에 붙임
 PROBLEM_LEVELS = ("오류", "경고", "주의")   # 파일 판정·이동·누적 대상. '수동'은 판정에 넣지 않음
 ADD_VISUAL_CHECK = True      # 파일마다 '화면 배치·문구 직접 확인' 수동 항목을 넣을지
@@ -130,6 +141,28 @@ LIVE_PRINT = True            # 파일 하나 끝날 때마다 문제 내용을 �
 LIVE_PRINT_MAX = 15          # 파일당 터미널에 보여줄 최대 줄 수(전체 내용은 CSV에 있음)
 PER_FILE_CSV = True          # 파일마다 results/파일별_시각/이름.csv 따로 저장(검사 중 엑셀로 열어도 안전)
 MOVE_IMMEDIATELY = False     # True면 정상 아닌 파일을 끝나자마자 html_edit로 이동(아래 주의 참고)
+# ── _edit 버전 추가 설정 ──
+ABNORMAL_LABELS = ("주의", "오류", "경고", "수정")   # 종료 후 '비정상(...) 건수'로 출력할 구분. 괄호 안 순서 = 숫자 순서
+STAGES = ("화면 탐색", "클릭 검사", "hover 메뉴", "폼·로그인", "캘린더")   # 파일 하나당 진행 단계(진행률 표시용)
+DEMO_FIRST = True            # 로그인 폼에 체험 계정이 있으면 TEST_ACCOUNT보다 먼저 그 계정으로 로그인
+# 체험 계정 자동 입력 버튼 글자(포함되면 후보). 로그인 폼 안 → 폼을 감싼 3단계 상위 순서로 찾음
+DEMO_BTN_RE = (r"(체험|데모|demo|테스트|test|샘플|sample|시연).{0,8}(계정|account|로그인|login|아이디|id)"
+               r"|(계정|아이디).{0,6}(자동|채우|입력)|(자동|바로).{0,4}(입력|채우|채움)|auto-?fill")
+DEMO_LINE_RE = r"(체험|데모|demo|테스트|test|샘플|sample|시연).{0,8}(계정|account)"   # 화면에 적힌 '체험 계정: 아이디 / 비밀번호' 안내 줄
+# 가입 폼이 처음부터 안 보일 때 로그인 화면에서 눌러 볼 버튼 글자 / 가입 후 로그인 창을 다시 열 버튼 글자(정확히 같을 때)
+SIGNUP_TRIGGER_RE = r"회원\s*가입|가입\s*하기|회원\s*등록|계정\s*(만들기|생성)|새\s*계정|sign ?up|register|create (an )?account|\bjoin\b"
+LOGIN_TRIGGER_RE = r"^(로그인|login|log in|sign in|signin)$"
+AUTH_TEST = True             # 인증창('인증번호 받기 → 번호 입력 → 확인')이 실제로 되는지 확인
+AUTH_SEND_RE = (r"인증\s*(번호|코드)?\s*(요청|받기|발송|전송|재전송|하기)|(본인|휴대폰|이메일|메일|문자)\s*인증"
+                r"|send ?(code|otp)|get ?(code|otp)")
+AUTH_OK_RE = r"인증\s*확인|확인|완료|제출|\bverify\b|\bconfirm\b|\bsubmit\b|\bok\b"
+AUTH_HINT_RE = r"인증|코드|otp|verif|code|authnum|auth|\bpin\b"
+AUTH_SUCCESS_WORDS = ("인증되었", "인증 되었", "인증이 완료", "인증 완료", "인증완료", "인증 성공", "인증성공",
+                      "확인되었", "성공", "완료", "verified", "success")
+LATE_WAIT_MS = 1500          # 클릭 직후 변화가 없을 때, 반응이 늦게 나타나는지 더 기다릴 최대 시간(ms). 0이면 끔
+COVER_WAIT_MS = 8000         # 다른 요소가 덮고 있을 때 풀리길(로딩 화면 등) 기다릴 최대 시간(ms)
+VIEWPORT_SIZE = (1280, 720)  # 브라우저 화면 크기(가로, 세로). 모바일 목업이면 (390, 844)처럼 바꿔 보세요
+AUTH_DEFAULT_CODE = "123456"  # 화면·알림에서 인증번호를 못 찾았을 때 넣어 볼 값(맞는 번호가 아닐 수 있음)
 # ────────────────────────────────
 
 CLICKABLE_SELECTOR = (
@@ -237,8 +270,8 @@ FORM_STRUCT_JS = """
 """
 
 FILL_FORM_JS = r"""
-([idx, acct, mode]) => {
-  const f = document.querySelectorAll('form')[idx];
+([idx, acct, mode, keep]) => {
+  const f = idx >= 0 ? document.querySelectorAll('form')[idx] : document.querySelector('[data-qa-root]');
   if (!f) return null;
   const pwCount = f.querySelectorAll('input[type=password]').length;
   let hasPw = false, ambiguous = false;
@@ -270,6 +303,8 @@ FILL_FORM_JS = r"""
       el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
     };
     if (['hidden','submit','button','reset','file','image'].includes(t)) continue;
+    // keep: 체험 계정처럼 이미 채워진 칸은 그대로 두고 빈 칸·체크박스만 채움
+    if (keep && !['checkbox','radio'].includes(t) && el.tagName !== 'SELECT' && el.value) continue;
     const h = hintOf(el);
     if (t === 'password') { hasPw = true; set(pick('password')); }
     else if (t === 'email') set(pick('email'));
@@ -332,7 +367,7 @@ POPUP_SCAN_JS = r"""
 # kind='precheck'면 '중복확인' 같은 사전 확인 버튼들에 번호표를 붙임
 SUBMIT_TARGET_JS = r"""
 ([idx, kind, precheckRe]) => {
-  const f = document.querySelectorAll('form')[idx];
+  const f = idx >= 0 ? document.querySelectorAll('form')[idx] : document.querySelector('[data-qa-root]');
   if (!f) return null;
   document.querySelectorAll('[data-qa-submit],[data-qa-pre]').forEach(e => { e.removeAttribute('data-qa-submit'); e.removeAttribute('data-qa-pre'); });
   const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
@@ -450,10 +485,12 @@ FORM_PEEK_JS = """
   const f = document.querySelectorAll('form')[idx];
   if (!f) return null;
   const pw = f.querySelectorAll('input[type=password]').length;
+  const pwVis = [...f.querySelectorAll('input[type=password]')].filter(i => {   // 탭 전환형: 숨은 '비밀번호 확인' 칸은 제외
+    const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(i).visibility !== 'hidden'; }).length;
   const btn = [...f.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')]
     .map(b => (b.innerText || b.value || '')).join(' ');
   const attrs = [f.getAttribute('id'), f.getAttribute('name'), f.getAttribute('class'), f.getAttribute('action')].join(' ');
-  const signup = pw >= 2 || /가입|등록|sign ?up|register|join/i.test(btn) || /signup|sign-up|register|join/i.test(attrs);
+  const signup = pwVis >= 2 || /가입|등록|sign ?up|register|join/i.test(btn) || /signup|sign-up|register|join/i.test(attrs);
   const name = (f.getAttribute('id') || f.getAttribute('name') || f.getAttribute('class') || ('form' + idx)).slice(0, 30);
   return { pw, signup, name };
 }
@@ -463,7 +500,8 @@ FORM_PEEK_JS = """
 LOGIN_FORM_HELPER_JS = """
   const findLoginForm = (name) => Array.from(document.forms).find((form, idx) => {
     const identity = (form.getAttribute('id') || form.getAttribute('name') || form.getAttribute('class') || ('form' + idx)).slice(0, 30);
-    if (identity !== name || form.querySelectorAll('input[type=password]').length !== 1) return false;
+    const pwShown = [...form.querySelectorAll('input[type=password]')].filter(i => { const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+    if (identity !== name || pwShown !== 1) return false;
     const { width, height } = form.getBoundingClientRect();
     return width > 0 && height > 0 && getComputedStyle(form).visibility !== 'hidden';
   });
@@ -706,6 +744,154 @@ PAGE_FEATURES_JS = """
 })
 """
 
+# ───────────── 체험 계정 · 회원가입 버튼 · 인증창을 찾는 JS ─────────────
+# 로그인 폼 안 → 폼을 감싼 3단계 상위 순서로 '체험 계정 입력' 버튼을 찾아 번호표(data-qa-demo)를 붙임
+DEMO_SCAN_JS = r"""
+([idx, re]) => {
+  const f = document.querySelectorAll('form')[idx];
+  if (!f) return null;
+  document.querySelectorAll('[data-qa-demo]').forEach(e => e.removeAttribute('data-qa-demo'));
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || e.title || '').trim().replace(/\s+/g, ' ');
+  const rx = new RegExp(re, 'i');
+  const clickable = (e) => /^(BUTTON|A|SUMMARY|INPUT)$/.test(e.tagName) || e.hasAttribute('onclick')
+    || e.getAttribute('role') === 'button' || getComputedStyle(e).cursor === 'pointer';
+  const pick = (root) => {
+    const list = [...root.querySelectorAll('button, a, [role=button], [onclick], input[type=button], summary, div, span')]
+      .filter(e => vis(e) && !e.disabled && txt(e) && txt(e).length <= 30 && rx.test(txt(e)) && clickable(e));
+    return list.find(e => !list.some(o => o !== e && e.contains(o)));   // 가장 안쪽 요소
+  };
+  let el = pick(f), box = f.parentElement;
+  for (let k = 0; k < 3 && box && !el; k++, box = box.parentElement) el = pick(box);
+  if (!el) return null;
+  el.setAttribute('data-qa-demo', '1');
+  return txt(el).slice(0, 30);
+}
+"""
+
+# 폼(idx) 또는 <form> 없는 입력 묶음(idx=-1)의 입력칸 값 목록
+FORM_FIELDS_JS = r"""
+(idx) => {
+  const f = idx >= 0 ? document.querySelectorAll('form')[idx] : document.querySelector('[data-qa-root]');
+  if (!f) return [];
+  return [...f.querySelectorAll('input')]
+    .filter(i => !['hidden', 'submit', 'button', 'checkbox', 'radio', 'reset', 'image', 'file'].includes((i.type || 'text').toLowerCase()))
+    .map(i => ({ type: (i.type || 'text').toLowerCase(), name: i.getAttribute('name') || i.id || i.type, value: i.value || '' }));
+}
+"""
+
+# 로그인 폼 주변에 적힌 글자('체험 계정: demo@example.com / Demo1234!' 같은 안내를 찾기 위함)
+DEMO_TEXT_JS = r"""
+(idx) => {
+  const f = document.querySelectorAll('form')[idx];
+  if (!f) return [];
+  const out = [];
+  let box = f;
+  for (let k = 0; k < 4 && box && box !== document.body; k++, box = box.parentElement) {
+    for (const t of (box.innerText || '').split('\n')) { const s = t.trim(); if (s && !out.includes(s)) out.push(s); }
+    if (out.length > 150) break;
+  }
+  return out.slice(0, 150);
+}
+"""
+
+# 글자가 re와 맞는 보이는 버튼·링크·탭 하나에 번호표(attr)를 붙이고 글자를 돌려줌. 로그인 폼 가까운 것을 먼저 고름
+FIND_TRIGGER_JS = r"""
+([attr, re, loginName]) => {
+""" + LOGIN_FORM_HELPER_JS + r"""
+  document.querySelectorAll('[' + attr + ']').forEach(e => e.removeAttribute(attr));
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || e.title || '').trim().replace(/\s+/g, ' ');
+  const rx = new RegExp(re, 'i');
+  const clickable = (e) => /^(BUTTON|A|SUMMARY|INPUT)$/.test(e.tagName) || e.hasAttribute('onclick')
+    || ['button', 'tab', 'link', 'menuitem'].includes(e.getAttribute('role')) || getComputedStyle(e).cursor === 'pointer';
+  const all = [...document.querySelectorAll('a, button, [role], [onclick], input[type=button], summary, div, span, li')]
+    .filter(e => vis(e) && !e.disabled && clickable(e) && txt(e) && txt(e).length <= 24 && rx.test(txt(e)));
+  const inner = all.filter(e => !all.some(o => o !== e && e.contains(o)));
+  if (!inner.length) return null;
+  const lf = loginName ? findLoginForm(loginName) : null;
+  let near = null;
+  if (lf) { near = lf; for (let k = 0; k < 4 && near.parentElement && near.parentElement !== document.body; k++) near = near.parentElement; }
+  inner.sort((a, b) => ((near && near.contains(a)) ? 0 : 1) - ((near && near.contains(b)) ? 0 : 1));
+  inner[0].setAttribute(attr, '1');
+  return txt(inner[0]).slice(0, 20);
+}
+"""
+
+# <form> 태그 없이 만든 가입 화면: 로그인 폼 밖에 보이는 비밀번호 칸을 감싼 묶음을 찾아 data-qa-root 번호표를 붙임
+SIGNUP_ROOT_JS = r"""
+([loginName]) => {
+""" + LOGIN_FORM_HELPER_JS + r"""
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  document.querySelectorAll('[data-qa-root]').forEach(e => e.removeAttribute('data-qa-root'));
+  const lf = findLoginForm(loginName);
+  const pws = [...document.querySelectorAll('input[type=password]')].filter(e => vis(e) && !(lf && lf.contains(e)));
+  if (!pws.length) return null;
+  const SKIP = ['hidden', 'submit', 'button', 'reset', 'image', 'checkbox', 'radio', 'file'];
+  const fields = (box) => [...box.querySelectorAll('input, textarea, select')].filter(e => vis(e) && !SKIP.includes((e.type || '').toLowerCase()));
+  const pwIn = (box) => [...box.querySelectorAll('input[type=password]')].filter(vis).length;
+  let box = pws[0], best = null;
+  for (let k = 0; k < 6 && box.parentElement && box.parentElement !== document.body; k++) {
+    box = box.parentElement;
+    if (lf && box.contains(lf)) break;   // 로그인 폼까지 포함하면 너무 넓음
+    if (pwIn(box) >= 2 || fields(box).length >= 3) best = box;
+  }
+  if (!best) return null;
+  best.setAttribute('data-qa-root', '1');
+  return { name: (best.getAttribute('id') || best.getAttribute('class') || best.tagName.toLowerCase()).slice(0, 30), fields: fields(best).length };
+}
+"""
+
+# 가입 폼 안의 '인증번호 받기' 같은 인증 요청 버튼에 번호표(data-qa-auth-send)를 붙임('인증 확인'류는 제외)
+AUTH_SEND_JS = r"""
+([idx, sendRe]) => {
+  document.querySelectorAll('[data-qa-auth-send]').forEach(e => e.removeAttribute('data-qa-auth-send'));
+  const f = idx >= 0 ? document.querySelectorAll('form')[idx] : document.querySelector('[data-qa-root]');
+  if (!f) return null;
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+  const rx = new RegExp(sendRe, 'i'), not = /확인|완료|confirm|submit|제출/i;
+  const el = [...f.querySelectorAll('button, input[type=button], a, [role=button], [onclick]')]
+    .find(e => vis(e) && !e.disabled && rx.test(txt(e)) && !not.test(txt(e)));
+  if (!el) return null;
+  el.setAttribute('data-qa-auth-send', '1');
+  return txt(el).slice(0, 20);
+}
+"""
+
+# 화면에 보이는 인증번호 입력칸(data-qa-auth-code)과 그 옆 '확인' 버튼(data-qa-auth-ok)에 번호표를 붙임
+AUTH_CODE_JS = r"""
+([hintRe, okRe]) => {
+  document.querySelectorAll('[data-qa-auth-code],[data-qa-auth-ok]').forEach(e => { e.removeAttribute('data-qa-auth-code'); e.removeAttribute('data-qa-auth-ok'); });
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+  const hx = new RegExp(hintRe, 'i'), ox = new RegExp(okRe, 'i');
+  const NOT_CODE = /e-?mail|이메일|전화번호|휴대폰번호|아이디/i, IS_CODE = /인증번호|인증 ?코드|otp|code/i;
+  const input = [...document.querySelectorAll('input, textarea')].find(e => {
+    const t = (e.type || 'text').toLowerCase();
+    if (['hidden', 'password', 'checkbox', 'radio', 'submit', 'button', 'file', 'image', 'email', 'tel'].includes(t)) return false;
+    if (!vis(e) || e.disabled || e.readOnly) return false;
+    const own = [e.getAttribute('placeholder'), e.getAttribute('aria-label'), e.getAttribute('name'), e.id, e.title].filter(Boolean).join(' ');
+    return hx.test(own) && !(NOT_CODE.test(own) && !IS_CODE.test(own));
+  });
+  if (!input) return null;
+  input.setAttribute('data-qa-auth-code', '1');
+  let ok = null, box = input;
+  for (let k = 0; k < 4 && box.parentElement && !ok; k++) {
+    box = box.parentElement;
+    ok = [...box.querySelectorAll('button, input[type=button], input[type=submit], [role=button], [onclick], a')]
+      .find(e => vis(e) && !e.disabled && ox.test(txt(e)) && !/재전송|다시|resend|받기|요청|발송|취소|닫기|중복/i.test(txt(e)));
+  }
+  if (ok) ok.setAttribute('data-qa-auth-ok', '1');
+  return { maxlength: input.maxLength > 0 ? input.maxLength : 0, ok: ok ? txt(ok).slice(0, 20) : null };
+}
+"""
+
 EXTERNAL_PAGE_HTML = "<!doctype html><meta charset='utf-8'><title>external</title><body>외부 링크(검수 중 실제 접속 안 함)</body>"
 
 
@@ -788,6 +974,49 @@ def account_text(keys=("email", "password")):
     return " / ".join(TEST_ACCOUNT[k] for k in keys)
 
 
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def parse_demo_credentials(lines):
+    """
+    화면 글자에서 '체험 계정: demo@example.com / Demo1234!' 또는 '아이디: demo  비밀번호: 1234' 같은 안내를 찾아
+    {'email' 또는 'id': 값, 'password': 값}을 돌려줌. 못 찾으면 None.
+    """
+    for i, line in enumerate(lines):
+        m0 = re.search(DEMO_LINE_RE, line, re.I)
+        if not m0:
+            continue
+        text = " ".join(lines[i:i + 2])
+        m0 = re.search(DEMO_LINE_RE, text, re.I)
+        text = text[m0.start():]
+        m = re.search(r"(?:아이디|\bid\b|이메일|\be-?mail\b)\s*[:：=]?\s*([^\s,/|·]+).{0,12}?"
+                      r"(?:비밀번호|비번|password|\bpw\b|\bpass\b)\s*[:：=]?\s*([^\s,/|·]{3,40})", text, re.I)
+        if m:
+            user, pw = m.group(1), m.group(2)
+        else:
+            em = EMAIL_RE.search(text)
+            if not em:
+                continue
+            m2 = re.match(r"[\s/,|·:：]*(?:비밀번호|비번|password|\bpw\b|\bpass\b)?\s*[:：=]?\s*([^\s,/|·]{3,40})",
+                          text[em.end():], re.I)
+            if not m2:
+                continue
+            user, pw = em.group(0), m2.group(1)
+        return {("email" if "@" in user else "id"): user.rstrip(".,;)"), "password": pw.rstrip(".,;)")}
+    return None
+
+
+def extract_auth_code(texts):
+    """알림·화면 문구에서 '인증번호: 482913' 같은 안내 번호를 찾음. (번호, 화면에 안내된 값인지). 없으면 ('', False)"""
+    for t in texts:
+        if not re.search(r"인증|코드|번호|code|otp|pin", t, re.I):
+            continue
+        m = re.search(r"(?<![\d-])(\d{4,8})(?![\d-])", t)
+        if m:
+            return m.group(1), True
+    return "", False
+
+
 def classify_click_error(full_msg):
     """
     Playwright 예외 전문(콜 로그 포함)에서 실제 원인을 찾아 (구분, 내용)으로 돌려줌.
@@ -814,9 +1043,43 @@ def classify_click_error(full_msg):
     return "오류", f"클릭 실패: {first[:80]}"
 
 
+class CoveredError(PWError):
+    """클릭이 다른 요소에 계속 가려져 실패. info에 가리는 요소 정보가 들어 있음"""
+    info = None
+
+
+# 요소 가운데 지점에서 맨 위에 있는 요소를 조사(가림 진단). 가려져 있지 않으면 null
+COVER_AT_JS = r"""
+(sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  el.scrollIntoView({ block: 'center', inline: 'center' });
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const x = Math.min(Math.max(r.left + r.width / 2, 0), innerWidth - 1), y = Math.min(Math.max(r.top + r.height / 2, 0), innerHeight - 1);
+  const top = document.elementFromPoint(x, y);
+  if (!top || el === top || el.contains(top)) return null;
+  const lab = top.closest('label');
+  if (lab && lab.control === el) return null;
+  const st = getComputedStyle(top), tr = top.getBoundingClientRect();
+  const area = Math.round(100 * Math.min(tr.width, innerWidth) * Math.min(tr.height, innerHeight) / (innerWidth * innerHeight));
+  const cls = (typeof top.className === 'string' && top.className.trim()) ? '.' + top.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+  const bg = st.backgroundColor;
+  const clear = parseFloat(st.opacity) < 0.1 || ((bg === 'rgba(0, 0, 0, 0)' || /,\s*0(\.0\d*)?\)$/.test(bg)) && !(top.innerText || '').trim() && !top.querySelector('img, svg, canvas'));
+  return { who: '<' + top.tagName.toLowerCase() + (top.id ? '#' + top.id : '') + cls + '>', pos: st.position, z: st.zIndex,
+           area, fixed: st.position === 'fixed' || st.position === 'sticky', clear, w: innerWidth, h: innerHeight };
+}
+"""
+
+
 class FileTester:
-    def __init__(self, browser, html_file: Path, origin: str, inner_bar: tqdm):
+    def __init__(self, browser, html_file: Path, origin: str, inner_bar: tqdm, stage_cb=None, label=""):
         self.file = html_file
+        self.stage_cb = stage_cb      # 단계가 바뀔 때 호출(전체 진행률 갱신용)
+        self.label = label            # 안쪽 진행 막대 앞에 붙일 '파일 3/100 이름'
+        self.demo_ok = set()          # 체험 계정으로 로그인이 확인된 로그인 폼
+        self.last_demo = None         # 직전 제출에서 쓴 체험 계정 정보
+        self.last_auth = None         # 직전 제출 직후 인증창 결과(ok/fail/unknown/None)
         self.origin = origin
         rel = html_file.resolve().relative_to(SERVE_ROOT)
         self.base_path = "/" + rel.as_posix()
@@ -843,7 +1106,9 @@ class FileTester:
         self.cal_lib_noted = set()
         self.events = []     # 클릭 중 발생한 이벤트
         self.cdn_failed = set()   # 불러오지 못한 외부 스크립트/CSS 호스트
-        self.context = browser.new_context(accept_downloads=True)
+        self.persistent_cover = False  # 오래 가리는 요소를 이미 발견했는지(이후 대기 시간을 줄임)
+        self.context = browser.new_context(accept_downloads=True,
+                                           viewport={"width": VIEWPORT_SIZE[0], "height": VIEWPORT_SIZE[1]})
         self.context.add_init_script(SUBMIT_HOOK_JS)
         # 외부 요청은 그대로 통과(CDN 정상 로드). 외부 '페이지 이동'만 빈 화면으로 대체
         self.context.route(lambda u: u.startswith("http") and not u.startswith(self.origin), self._route_external)
@@ -1018,12 +1283,12 @@ class FileTester:
             if not oid:
                 return None
             props = cdp.send("Runtime.getProperties", {"objectId": oid, "ownProperties": True})
-            for prop in props["result"]:
-                if not prop["name"].isdigit():
-                    continue
+            digits = [pr for pr in props["result"] if pr["name"].isdigit()]
+            for k, prop in enumerate(digits):
                 ls = cdp.send("DOMDebugger.getEventListeners", {"objectId": prop["value"]["objectId"]})["listeners"]
                 if any(l["type"] in CLICK_EVENT_TYPES for l in ls):
-                    return True
+                    # 요소 자신 / 상위 요소 / 문서 전체(body·html·document·window — 분석·프레임워크 위임일 수 있음)
+                    return "own" if k == 0 else ("global" if k >= len(digits) - 4 else "ancestor")
             return False
         except PWError:
             return None
@@ -1110,6 +1375,71 @@ class FileTester:
         self.page.evaluate(TAG_ELEMENTS_JS, CLICKABLE_SELECTOR)
         self.events = []
 
+    def _storage(self):
+        try:
+            return self.page.evaluate(STORAGE_JS)
+        except PWError:
+            return {}
+
+    def _cover_at(self, selector):
+        try:
+            return self.page.evaluate(COVER_AT_JS, selector)
+        except PWError:
+            return None
+
+    def _wait_uncovered(self, selector):
+        """다른 요소가 덮고 있으면 풀리길 기다림(로딩 화면 등). 끝까지 가려져 있으면 가리는 요소 정보, 풀리면 None"""
+        limit = 1500 if self.persistent_cover else COVER_WAIT_MS   # 오래 가리는 요소를 이미 봤다면 길게 기다리지 않음
+        waited, info = 0, self._cover_at(selector)
+        while info and waited < limit:
+            self.page.wait_for_timeout(300)
+            waited += 300
+            info = self._cover_at(selector)
+        if info:
+            self.persistent_cover = True
+        return info
+
+    def _probe_js_click(self, selector):
+        """사람은 못 누르지만 코드로 직접 누르면 동작하는지: 'yes'(동작함) / 'no'(변화 없음) / None(확인 못함)"""
+        try:
+            before_url, before_state = self.page.url, state_hash(self.page, with_values=True)
+            self.events = []
+            if not self.page.evaluate("(s) => { const e = document.querySelector(s); if (!e) return false; e.click(); return true; }", selector):
+                return None
+            self.page.wait_for_timeout(CLICK_WAIT_MS)
+            self.wait_settled()
+            seen = any(k in ("dialog", "popup", "download") for k, _ in self.events)
+            self.events = []
+            changed = (seen or before_url.split("#", 1)[0] != self.page.url.split("#", 1)[0]
+                       or before_state != state_hash(self.page, with_values=True))
+            return "yes" if changed else "no"
+        except PWError:
+            return None
+
+    def _click_error(self, e, selector, where, step, flow=None):
+        """클릭 예외를 기록. 가려짐이면 가리는 요소의 정체와 '코드로 누르면 동작하는지'까지 적음"""
+        text = str(e)
+        level, msg = classify_click_error(text)
+        if "intercepts pointer events" in text:
+            info = getattr(e, "info", None) or self._cover_at(selector)
+            probe = self._probe_js_click(selector)
+            tail = {"yes": " · 코드로 직접 누르면 동작함(기능은 구현돼 있고 위치 겹침이 문제)",
+                    "no": " · 코드로 직접 눌러도 변화 없음(가려짐과 별개로 반응이 없음)", None: ""}[probe]
+            if not info:
+                level, msg = "주의", "다른 요소에 가려져 클릭 불가(가리는 요소는 확인하지 못함 — 일시적인 로딩·애니메이션일 수 있음)" + tail
+            else:
+                if info["area"] >= 50:
+                    kind = (f"화면의 {info['area']}%를 덮는 {info['who']}(position:{info['pos']}, z-index:{info['z']})가 위에 있음"
+                            f" — 모달·로딩 화면·안내 배너가 닫히지 않은 상태일 수 있음")
+                elif info["fixed"]:
+                    kind = (f"고정 영역 {info['who']}(position:{info['pos']})가 가림 — 스크롤해도 같은 자리에서 가려짐"
+                            f"(화면 {info['w']}x{info['h']} 기준)")
+                else:
+                    kind = (f"{info['who']}(position:{info['pos']}, z-index:{info['z']}{', 투명' if info['clear'] else ''})가 위에 겹쳐 있음"
+                            f" — 위쪽 요소의 z-index·pointer-events 확인")
+                level, msg = "주의", f"다른 요소에 가려져 클릭 불가: {kind}{tail}"
+        self.add(level, where, msg, flow or f"{step} → 눌리는지, 다른 요소에 가려지거나 숨겨져 있지 않은지 확인")
+
     def _judge_click(self, selector, where, step, href):
         """
         selector 요소를 클릭하고 반응을 판정해 기록. (changed, url_changed)를 돌려줌.
@@ -1127,6 +1457,7 @@ class FileTester:
         self.page.wait_for_timeout(150)
         animated = before_visual != visual_hash(self.page)   # 혼자 움직이는 화면은 겉모습 비교 제외
         before_url, before_state = self.page.url, state_hash(self.page, with_values=True)
+        store_before = self._storage()
         handler = self.has_click_handler(selector)   # 클릭 전에 확인(클릭 후엔 화면이 바뀔 수 있음)
         try:
             selected = bool(loc.first.evaluate(SELECTED_JS))   # 클릭 전 상태로 확인(클릭 후엔 바뀔 수 있음)
@@ -1135,15 +1466,19 @@ class FileTester:
         try:
             loc.first.click(timeout=2000)
         except PWError as e:
-            # 다른 요소에 가려졌으면: 떠 있는 팝업 닫기 → 요소를 화면 가운데로 스크롤 → 한 번 더 클릭
+            # 다른 요소에 가려졌으면: 떠 있는 팝업 닫기 → 가림이 풀리길 기다림(로딩 화면 등) → 한 번 더 클릭
             # (고정 헤더·잠깐 떴다 사라지는 안내창·로딩 화면 때문에 사람은 되는데 자동 클릭만 막히는 경우)
             if "intercepts pointer events" not in str(e):
                 raise
             self.close_popups()
-            self.page.wait_for_timeout(500)
-            loc.first.evaluate("e => e.scrollIntoView({block: 'center'})")
+            info = self._wait_uncovered(selector)
+            if info:   # 끝까지 가려져 있음 → 가리는 요소 정보를 붙여 호출한 쪽에 전달
+                err = CoveredError(str(e))
+                err.info = info
+                raise err from e
             before_url, before_state = self.page.url, state_hash(self.page, with_values=True)
             before_visual = visual_hash(self.page)
+            store_before = self._storage()
             animated = False
             loc.first.click(timeout=2000)
         self.clicks_used += 1
@@ -1159,6 +1494,25 @@ class FileTester:
         url_changed = before_url.split("#", 1)[0] != after_url.split("#", 1)[0]
         visual_changed = (not animated) and before_visual != visual_hash(self.page)
         changed = url_changed or (before_state != after_state) or bool(rest) or visual_changed
+        waited = 0
+        if not changed and not self.last_had_error:
+            if self._storage() != store_before:   # 화면은 그대로이고 저장소만 바뀜 → 저장·찜 같은 기능
+                changed = True
+                self.add("수동", where, "화면 변화 없이 저장소(localStorage·sessionStorage)만 바뀜 — 저장·찜 같은 기능이면 정상", step)
+            elif LATE_WAIT_MS > 0 and handler is not False:   # 반응이 늦게 나타나는지 더 기다림
+                while waited < LATE_WAIT_MS and not changed:
+                    self.page.wait_for_timeout(300)
+                    waited += 300
+                    changed = (before_url.split("#", 1)[0] != self.page.url.split("#", 1)[0]
+                               or state_hash(self.page, with_values=True) != before_state
+                               or ((not animated) and visual_hash(self.page) != before_visual)
+                               or bool(self.events) or self._storage() != store_before)
+                rest2 = self.flush_errors(where, step)
+                self.check_downloads(rest2, where, step)
+                changed = changed or bool(rest2)
+                url_changed = before_url.split("#", 1)[0] != self.page.url.split("#", 1)[0]
+                if changed:
+                    self.add("수동", where, f"반응이 늦음: 클릭 후 약 {CLICK_WAIT_MS + waited}ms 뒤에 화면·알림이 바뀜", step)
         href = (href or "").strip()
         if not changed and self.last_had_error:
             pass   # 오류가 이미 원인으로 기록됨('반응 없음' 중복 방지)
@@ -1172,12 +1526,16 @@ class FileTester:
             self.add("수동", where, "이미 선택된 항목이라 클릭해도 변화 없음(정상일 가능성 높음)",
                      f"{step} → 다른 항목으로 바꾼 뒤 이 항목을 다시 눌러 정상 전환되는지 확인")
         elif not changed and REPORT_NO_RESPONSE:
-            self.add("경고", where,
-                     "클릭해도 반응 없음 · 클릭 전후로 주소·화면 구조·입력값·겉모습·알림을 비교했으나 변화 없음",
-                     f"{step} → 1~2초 기다려 화면 변화·알림·이동이 있는지 확인"
-                     f" | 판정 근거: {reaction_detail(url_changed, before_state != after_state, visual_changed, bool(rest), animated)}"
-                     f" / 클릭 후 {CLICK_WAIT_MS}ms + 화면 안정 대기"
-                     f" / 추정: 반응이 더 늦게 나타나거나, 잠깐 떴다 사라지는 안내이거나, 새 탭·화면 밖에서 일어나는 변화일 수 있음")
+            detail = (f"{step} → 1~2초 기다려 화면 변화·알림·이동이 있는지 확인"
+                      f" | 판정 근거: {reaction_detail(url_changed, before_state != after_state, visual_changed, bool(rest), animated)}"
+                      f" / 클릭 후 {CLICK_WAIT_MS + waited}ms + 화면 안정 대기 / 클릭 처리 위치: {handler or '확인 불가'}")
+            watched = f"클릭 후 약 {CLICK_WAIT_MS + waited}ms 동안 주소·화면 구조·입력칸 값·겉모습·알림·저장소를 비교했으나 변화 없음"
+            if handler == "global":
+                self.add("경고", where, f"클릭해도 반응 없음 · 이 요소·상위 요소에는 클릭 처리가 없고 문서 전체(document·window·body) 리스너만 있음"
+                                        f" — 미구현 가능성 높음({watched})", detail)
+            else:
+                known = "클릭 처리는 연결돼 있음" if handler else "클릭 처리 연결 여부는 확인 못함"
+                self.add("주의", where, f"클릭해도 화면 변화 없음 · {known}({watched}) — 체크·입력 같은 조건이 필요하거나 저장만 하는 버튼이면 정상일 수 있음", detail)
         return changed, url_changed
 
     def _new_clickables(self, url):
@@ -1250,8 +1608,7 @@ class FileTester:
                             self.test_children(url, el, where, step, kids)
                             dirty = True
             except PWError as e:
-                level, msg = classify_click_error(str(e))
-                self.add(level, where, msg, f"{step} → 눌리는지, 다른 요소에 가려지거나 숨겨져 있지 않은지 확인")
+                self._click_error(e, f'[data-qa-id="{el["id"]}"]', where, step)
                 dirty = True
             self.bar.update(1)
 
@@ -1287,6 +1644,7 @@ class FileTester:
             where = f"{pwhere} > '{clabel}'"
             step = f"{pstep} → 나타난 '{clabel}' 클릭"
             self.bar.set_postfix_str(f"클릭(2단계): {clabel[:15]}")
+            sel = f'[data-qa-id="{parent["id"]}"]'
             try:
                 self._prepare(url)
                 self.page.locator(f'[data-qa-id="{parent["id"]}"]').first.click(timeout=2000)
@@ -1299,10 +1657,10 @@ class FileTester:
                     self.add("수동", where, "부모 버튼을 다시 눌렀을 때 같은 버튼이 나타나지 않아 자동 재현 실패",
                              f"{step} → 동작 확인")
                 else:
-                    self._judge_click(f'[data-qa-cid="{match["cid"]}"]', where, step, k["href"])
+                    sel = f'[data-qa-cid="{match["cid"]}"]'
+                    self._judge_click(sel, where, step, k["href"])
             except PWError as e:
-                level, msg = classify_click_error(str(e))
-                self.add(level, where, msg, f"{step} → 눌리는지, 다른 요소에 가려지거나 숨겨져 있지 않은지 확인")
+                self._click_error(e, sel, where, step)
             self.bar.update(1)
 
     # ── 2-2단계: hover로만 열리는 메뉴 검사 ──
@@ -1319,6 +1677,7 @@ class FileTester:
             if self.clicks_used >= MAX_CLICKS_PER_FILE:
                 break
             self.bar.set_postfix_str(f"hover: {text[:15]}")
+            sel = "[data-qa-hover]"
             try:
                 self._prepare(url)
                 info = self.page.evaluate(HOVER_PREP_JS, [CLICKABLE_SELECTOR, tag, text])
@@ -1334,11 +1693,11 @@ class FileTester:
                 where = f"{self.route_name(url)} > '{info}'(마우스 올림) > '{text}'"
                 step = f"{self.open_step(url)} → '{info}'에 마우스 올리기 → 나타난 '{text}' 클릭"
                 self.events = []
-                self._judge_click("[data-qa-hid]", where, step, "")
+                sel = "[data-qa-hid]"
+                self._judge_click(sel, where, step, "")
             except PWError as e:
-                level, msg = classify_click_error(str(e))
-                self.add(level, f"{self.route_name(url)} > '{text}'(hover 메뉴)", msg,
-                         f"{self.open_step(url)} → 상위 메뉴에 마우스 올리기 → '{text}' 클릭되는지 확인")
+                self._click_error(e, sel, f"{self.route_name(url)} > '{text}'(hover 메뉴)", "",
+                                  flow=f"{self.open_step(url)} → 상위 메뉴에 마우스 올리기 → '{text}' 클릭되는지 확인")
             self.bar.update(1)
 
     def check_downloads(self, events, where, flow=""):
@@ -1363,22 +1722,35 @@ class FileTester:
                 self.add("오류", where, f"다운로드 오류: {str(e).split(chr(10))[0][:80]}", dl_flow)
 
     # ── 3단계: 폼(로그인/회원가입/검색 등) 테스트 ──
-    def _fill_form(self, idx, mode=None):
-        return self.page.evaluate(FILL_FORM_JS, [idx, TEST_ACCOUNT, mode or LOGIN_KEY_ORDER[0]])
+    def _fill_form(self, idx, mode=None, acct=None, keep=False):
+        return self.page.evaluate(FILL_FORM_JS, [idx, acct or TEST_ACCOUNT, mode or LOGIN_KEY_ORDER[0], keep])
 
     def _press(self, selector):
         self.page.locator(selector).first.click(timeout=2000)
 
-    def _submit_form(self, idx, mode=None, precheck=False):
+    def _submit_form(self, idx, mode=None, precheck=False, demo=False, where=None, flow="", post_auth=False):
         """
         폼 idx를 채워 제출. (info, changed, 새로 나타난 문구·알림 목록, rest)를 돌려줌.
+        idx=-1이면 <form> 태그 없이 만든 입력 묶음(data-qa-root)을 같은 방식으로 채워 제출.
         사람처럼 '제출 버튼'을 눌러 제출함. 가입 버튼에 onclick만 달린 화면(<form onsubmit="return false">
         + <button type="button" onclick="signup()">)은 폼 제출 이벤트만 보내면 아무 일도 안 일어나기 때문.
         버튼을 못 찾을 때만 폼 제출 이벤트(requestSubmit)를 보냄. precheck=True면 '중복확인' 버튼을 먼저 누름.
+        demo=True면 체험 계정(처음부터 채워진 값 → 자동 입력 버튼 → 화면에 적힌 계정 순)을 TEST_ACCOUNT보다 먼저 사용.
+        where를 주면 인증창도 확인: precheck=True면 제출 전에 '인증번호 받기 → 번호 입력 → 확인',
+        post_auth=True면 제출 직후 새로 뜬 인증창(로그인 2단계 인증 등)에서 같은 확인을 함.
         """
-        if idx not in self.page.evaluate(VISIBLE_FORMS_JS, False):
+        if idx >= 0 and idx not in self.page.evaluate(VISIBLE_FORMS_JS, False):
             return None, False, [], []
-        info = self._fill_form(idx, mode)
+        self.last_demo, self.last_auth = None, None
+        if demo:
+            self.last_demo = self._prepare_demo(idx, where or "로그인 폼", flow)
+        d = self.last_demo
+        if d:
+            info = self._fill_form(idx, d.get("mode") or mode, d.get("acct"), d.get("keep", False))
+            if info:
+                info["used"] = {"체험 계정": d["how"]}
+        else:
+            info = self._fill_form(idx, mode)
         if not info:
             return None, False, [], []
         if precheck:
@@ -1392,6 +1764,9 @@ class FileTester:
             if pres:
                 self.wait_settled()
             info["precheck"] = pres
+            if where and AUTH_TEST:
+                self._run_auth(idx, where, flow, allow_send=True)   # 가입 중 인증창이 실제로 되는지
+        had_code = bool(self._auth_info()) if (post_auth and where and AUTH_TEST) else False
         # 번호표(data-qa-submit) 붙이기가 화면 지문을 바꾸므로, 비교 기준은 번호표를 붙인 뒤에 잡음
         label = self.page.evaluate(SUBMIT_TARGET_JS, [idx, "submit", PRECHECK_RE])
         info["via"] = label
@@ -1400,8 +1775,12 @@ class FileTester:
         before_text = set(self.page.evaluate(TEXT_LINES_JS))
         if label:
             self._press("[data-qa-submit]")
-        else:
+        elif idx >= 0:
             self.page.evaluate("(i) => { const f = document.querySelectorAll('form')[i]; f.requestSubmit ? f.requestSubmit() : f.submit(); }", idx)
+        else:   # <form> 태그가 없고 제출 버튼도 못 찾음 → 마지막 입력칸에서 Enter
+            self.page.evaluate("() => { const r = document.querySelector('[data-qa-root]'); const l = r && [...r.querySelectorAll('input')]"
+                               ".filter(i => !['hidden','checkbox','radio','submit','button'].includes(i.type)).pop(); if (l) l.focus(); }")
+            self.page.keyboard.press("Enter")
         self.page.wait_for_timeout(CLICK_WAIT_MS + 200)
         try:
             self.page.locator('[data-qa-submit][aria-busy="true"]:visible, form[aria-busy="true"]:visible').first.wait_for(
@@ -1430,6 +1809,15 @@ class FileTester:
             "events": any(k not in ("jserror", "console", "resource", "brokenlink") for k, _ in self.events),
             "waited": CLICK_WAIT_MS + 200 + waited,
         }
+        # 제출 직후 '새로' 뜬 인증창(로그인 2단계 인증 등): 오류로 보지 않고 실제로 되는지 확인
+        if post_auth and where and AUTH_TEST and not had_code and self._auth_info():
+            seed = [v for k, v in self.events if k == "dialog"] + new_text   # 인증번호가 알림·화면에 적혀 있을 수 있음
+            self.last_auth = self._run_auth(None, where, flow, allow_send=False, seed_texts=seed)
+            changed = True
+            if self.last_auth == "ok":   # 인증까지 끝난 뒤 화면 기준으로 다시 비교
+                new_text = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before_text]
+            else:
+                new_text = []   # 인증창 문구를 로그인 실패 문구로 오인하지 않음(인증창 결과는 따로 기록됨)
         return info, changed, new_text, []
 
     def _submit_detail(self):
@@ -1445,6 +1833,195 @@ class FileTester:
                 f" / 판정 근거: {reaction_detail(d['url'], d['dom'], d['vis'], d['events'], with_values=False)}"
                 f" / 제출 후 {d['waited']}ms 이상 대기"
                 f" / 추정: 응답이 더 늦게 오거나, 잠깐 떴다 사라지는 안내이거나, 화면에 드러나지 않는 처리(저장만 하는 경우)일 수 있음")
+
+    # ── 체험 계정 ──
+    def _prepare_demo(self, idx, where, flow):
+        """
+        로그인 폼에서 체험 계정을 찾아 입력된 상태로 만듦. 우선순위:
+        ① 처음부터 채워져 있음  ② '체험 계정' 자동 입력 버튼  ③ 화면에 적힌 계정 안내. 없으면 None.
+        """
+        if not DEMO_FIRST:
+            return None
+
+        def pw_filled():
+            return any(x["type"] == "password" and x["value"] for x in (self.page.evaluate(FORM_FIELDS_JS, idx) or []))
+        try:
+            if pw_filled():
+                return {"how": "처음부터 채워져 있는 체험 계정", "keep": True}
+            label = self.page.evaluate(DEMO_SCAN_JS, [idx, DEMO_BTN_RE])
+            if label:
+                step = f"{flow} → '{label}' 클릭"
+                self.page.locator("[data-qa-demo]").first.click(timeout=2000)
+                self.page.wait_for_timeout(CLICK_WAIT_MS)
+                self.wait_settled()
+                self.flush_errors(where, step)
+                if pw_filled():
+                    return {"how": f"'{label}' 버튼으로 자동 입력", "keep": True}
+                self.add("주의", where, f"체험 계정 버튼 '{label}'을 눌러도 입력칸이 채워지지 않음(눌러서 바로 로그인되는 방식일 수 있음)",
+                         f"{step} → 아이디·비밀번호 칸이 채워지는지 확인")
+            cred = parse_demo_credentials(self.page.evaluate(DEMO_TEXT_JS, idx))
+            if cred:
+                key = "email" if "email" in cred else "id"
+                acct = dict(TEST_ACCOUNT)
+                acct.update(cred)
+                return {"how": f"화면에 적힌 체험 계정({cred[key]})", "acct": acct, "mode": key, "keep": False}
+        except PWError:
+            pass
+        return None
+
+    def _demo_result(self, where, fstep, demo, fail, login_name):
+        """체험 계정으로 로그인한 결과를 기록. 성공이면 '통과', 실패 문구가 나오면 '오류'(체험 계정은 되어야 하므로)"""
+        how = demo["how"]
+        if fail:
+            self.add("오류", where, f"체험 계정({how})으로 로그인했으나 실패 문구 표시: '{fail}'",
+                     f"{fstep} → 체험 계정 값과 로그인 확인 코드(저장된 계정 비교)를 확인")
+        elif self.last_auth not in (None, "ok"):
+            pass   # 인증창에서 막힌 경우는 인증창 결과가 따로 기록됨
+        else:
+            after = self._login_state(login_name)
+            url_ch = bool((getattr(self, "last_submit", None) or {}).get("url"))
+            logged = url_ch or bool(after and (after["member"] or after["memberSel"] or not after["loginFormVisible"]))
+            if logged:
+                self.add("통과", where, f"체험 계정({how})으로 로그인 정상 동작", fstep)
+                self.demo_ok.add(where)
+            else:
+                self.add("주의", where, f"체험 계정({how}) 로그인 뒤 로그인 상태(로그아웃 버튼·로그인 창 닫힘 등)를 확인하지 못함",
+                         f"{fstep} → 로그인 완료 화면이 나오는지 직접 확인")
+        try:
+            self._logout_if_available()   # 다음 검사가 로그인 상태에 영향받지 않도록
+        except PWError:
+            pass
+
+    # ── 인증창 ──
+    def _auth_info(self):
+        try:
+            return self.page.evaluate(AUTH_CODE_JS, [AUTH_HINT_RE, AUTH_OK_RE])
+        except PWError:
+            return None
+
+    def _run_auth(self, idx, where, flow, allow_send, seed_texts=()):
+        """
+        인증창('인증번호 받기 → 번호 입력 → 확인')이 실제로 동작하는지 확인. 인증창이 뜨는 것 자체는 오류로 보지 않음.
+        결과: 'ok'(인증 성공) / 'fail'(실패 문구) / 'unknown'(판단 못 함) / None(인증 화면 없음)
+        제출 때 쌓인 알림 목록(self.events)은 건드리지 않고 되돌려 줌.
+        """
+        saved, self.events = self.events, []
+        try:
+            return self._run_auth_inner(idx, where, flow, allow_send, list(seed_texts))
+        except PWError as e:
+            self.add("주의", where, f"인증창 검사 중 중단: {str(e).split(chr(10))[0][:60]}", f"{flow} → 인증창을 직접 열어 확인")
+            return "unknown"
+        finally:
+            self.events = saved
+
+    def _run_auth_inner(self, idx, where, flow, allow_send, heard):
+        step = f"{flow} → 인증창"
+        send = self.page.evaluate(AUTH_SEND_JS, [idx, AUTH_SEND_RE]) if allow_send else None
+        info = self._auth_info()
+        if send:   # 인증 요청 버튼을 눌러 번호를 받고 인증창을 띄움
+            before = set(self.page.evaluate(TEXT_LINES_JS))
+            self.page.locator("[data-qa-auth-send]").first.click(timeout=2000)
+            self.page.wait_for_timeout(CLICK_WAIT_MS + 200)
+            self.wait_settled()
+            rest = self.flush_errors(where, step)
+            sent = [v for k, v in rest if k == "dialog"] + [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before]
+            heard += sent
+            info = self._auth_info()
+            if not info:
+                if sent:
+                    self.add("주의", where, f"인증창: '{send}' 클릭 후 인증번호 입력칸을 찾지 못함(안내 문구: '{sent[0][:40]}')",
+                             f"{step} → '{send}' 클릭 → 인증번호 입력칸이 나타나는지 확인")
+                else:
+                    self.add("경고", where, f"인증창: '{send}' 버튼을 눌러도 반응 없음(알림도 인증번호 입력칸도 나타나지 않음)",
+                             f"{step} → '{send}' 클릭 → 알림·입력칸이 나타나는지 확인")
+                return "unknown"
+        if not info:
+            return None
+        code, known = extract_auth_code(heard)
+        if not code:
+            n = info.get("maxlength") or 0
+            code = AUTH_DEFAULT_CODE[:n] if 0 < n < len(AUTH_DEFAULT_CODE) else AUTH_DEFAULT_CODE
+        before = set(self.page.evaluate(TEXT_LINES_JS))
+        inp = self.page.locator("[data-qa-auth-code]").first
+        inp.fill(code, timeout=2000)
+        ok_label = info.get("ok")
+        if ok_label:
+            self.page.locator("[data-qa-auth-ok]").first.click(timeout=2000)
+        else:
+            inp.press("Enter")
+        self.page.wait_for_timeout(CLICK_WAIT_MS + 200)
+        self.wait_settled()
+        rest = self.flush_errors(where, step)
+        dlg = [v for k, v in rest if k == "dialog"]
+        new = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before]
+        via = f"'{send}' 클릭 → " if send else ""
+        flow2 = f"{step} → {via}인증번호 입력({code}{'' if known else ', 화면에서 번호를 못 찾아 임의 값'}) → '{ok_label or 'Enter'}'"
+        fail = self._fail_message(new, dlg)
+        if fail:
+            if known:
+                self.add("오류", where, f"인증창: 화면·알림에 안내된 인증번호({code})를 넣었는데도 실패 문구 표시: '{fail}'",
+                         flow2 + " → 안내된 번호와 확인 코드가 같은지 비교")
+            else:
+                self.add("주의", where, f"인증창: 자동 입력한 번호({code})로 실패 문구 표시: '{fail}' (실제 인증번호를 몰라 자동 판정 불가)",
+                         flow2 + " → 실제 인증번호로 직접 확인")
+            return "fail"
+        ok_msg = next((t for t in dlg + new if any(w in t.lower() for w in AUTH_SUCCESS_WORDS)), "")
+        if ok_msg:
+            self.add("통과", where, f"인증창 정상 동작: {via}인증번호 입력 → 확인 후 '{ok_msg[:40]}' 표시", flow2)
+            return "ok"
+        if not self._auth_info():
+            self.add("통과", where, f"인증창 정상 동작: {via}인증번호 입력 → 확인 후 인증창이 닫힘(성공 문구는 따로 없음)", flow2)
+            return "ok"
+        self.add("주의", where, "인증창: 인증번호를 입력하고 확인했으나 결과(성공·실패 표시)를 찾지 못함", flow2 + " → 결과가 표시되는지 직접 확인")
+        return "unknown"
+
+    # ── 회원가입 버튼으로 가입 화면 열기 ──
+    def _signup_target(self, l):
+        """지금 화면에서 가입 입력칸을 찾음. (폼 번호 또는 -1, 이름, 종류) / 없으면 None"""
+        for idx in self.page.evaluate(VISIBLE_FORMS_JS, False):
+            peek = self.page.evaluate(FORM_PEEK_JS, idx)
+            if peek and peek["pw"] and peek["signup"]:
+                return idx, peek["name"], "회원가입 폼"
+        root = self.page.evaluate(SIGNUP_ROOT_JS, [l["name"]])
+        if root:
+            return -1, root["name"], "가입 입력칸(<form> 태그 없음)"
+        return None
+
+    def _find_signup_by_button(self, l):
+        """
+        가입 폼이 처음부터 보이지 않을 때: 로그인 화면의 '회원가입' 버튼·링크를 눌러 가입 입력칸을 연다.
+        (가입 정보 dict, None) 또는 (None, 못 찾은 이유)
+        """
+        self.goto(l["url"])
+        if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:   # 앞 검사로 로그인된 상태일 수 있음
+            self._logout_if_available()
+            self.goto(l["url"])
+        trig = self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-signup-btn", SIGNUP_TRIGGER_RE, l["name"]])
+        if not trig:
+            return None, "회원가입 버튼·링크를 찾지 못함(로그인 화면에 '회원가입'·'가입하기'·'Sign up' 같은 글자의 버튼이 없음)"
+        self.events = []
+        self.page.locator("[data-qa-signup-btn]").first.click(timeout=2000)
+        self.page.wait_for_timeout(CLICK_WAIT_MS)
+        self.wait_settled()
+        self.flush_errors(f"{self.route_name(l['url'])} > '{trig}'", f"{self.open_step(l['url'])} → '{trig}' 클릭")
+        found = self._signup_target(l)
+        if not found:
+            return None, f"'{trig}' 버튼을 눌렀으나 가입 입력칸(비밀번호 칸이 있는 묶음)을 찾지 못함"
+        idx, name, kind = found
+        return {"url": self.page.url, "idx": idx, "name": name, "kind": kind, "trigger": trig, "signup": True,
+                "where": f"{self.route_name(l['url'])} > '{trig}' 클릭 후 {kind}({name})"}, None
+
+    def _open_login_ui(self, l):
+        """가입 뒤 로그인 폼이 안 보이면 '로그인' 탭·버튼을 눌러 새로고침 없이 로그인 창을 다시 엶"""
+        trig = self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-login-btn", LOGIN_TRIGGER_RE, None])
+        if not trig:
+            return
+        try:
+            self.page.locator("[data-qa-login-btn]").first.click(timeout=2000)
+            self.page.wait_for_timeout(CLICK_WAIT_MS)
+            self.wait_settled()
+        except PWError:
+            pass
 
     @staticmethod
     def _duplicate_message(new_text, dialogs):
@@ -1506,7 +2083,10 @@ class FileTester:
                 if struct and struct["noTarget"]:
                     self.add("주의", where, "action·onsubmit·submit 리스너가 모두 없는 <form> 태그 (전송 대상 불명)",
                              f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
-                info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"])
+                is_login = bool(peek["pw"]) and not peek["signup"]
+                info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"], demo=is_login,
+                                                               where=where, flow=fstep, post_auth=is_login)
+                demo = self.last_demo if is_login else None
                 if self.page.url.startswith("chrome-error"):
                     self.add("오류", where, "제출 후 페이지 이동 실패", f"{fstep} → 이동한 화면이 열리는지 확인")
                 rest = self.flush_errors(where, fstep)
@@ -1520,7 +2100,7 @@ class FileTester:
                                  f"{fstep} → 어떤 칸에서 막히는지(빨간 안내) 확인 → required·pattern·minlength 조건 확인")
                     elif peek["pw"]:
                         self.add("오류", where,
-                                 "제출해도 반응 없음(로그인/가입 처리 안 됨) · 값을 자동 입력해 제출했으나 "
+                                 ("체험 계정 입력 후 " if demo else "") + "제출해도 반응 없음(로그인/가입 처리 안 됨) · 값을 자동 입력해 제출했으나 "
                                  "주소·화면 구조·겉모습·알림 모두 변화 없음(입력 규칙 검증은 통과)",
                                  f"{fstep} → 완료 문구·화면 전환이 있는지 확인" + self._submit_detail())
                     else:
@@ -1529,7 +2109,9 @@ class FileTester:
                                  f"{fstep} → 결과 화면·메시지가 있는지 확인" + self._submit_detail())
                 elif peek["pw"]:
                     fail = self._fail_message(new_text, dialogs)
-                    if fail and not peek["signup"]:
+                    if demo:
+                        self._demo_result(where, fstep, demo, fail, peek["name"])   # 체험 계정은 되어야 하므로 실패면 바로 기록
+                    elif fail and not peek["signup"]:
                         # 가입 전 로그인 실패는 정상일 수 있음 → '가입 → 로그인' 결과를 보고 test_login_chain에서 결정
                         self.login_fail_pending[where] = (fail, fstep)
                     elif fail and not self._duplicate_message(new_text, dialogs):
@@ -1715,18 +2297,19 @@ class FileTester:
 
     def _flush_login_pending(self, verified, reason):
         for where, (fail, fstep) in self.login_fail_pending.items():
-            if where in verified:
-                continue   # 가입 후 로그인 결과로 이미 판정함(통과면 문제 아님, 실패면 따로 기록됨)
+            if where in verified or where in self.demo_ok:
+                continue   # 가입 후 로그인 또는 체험 계정 로그인으로 이미 판정함(통과면 문제 아님, 실패면 따로 기록됨)
             why = reason or "가입 → 로그인 연속 검사는 다른 로그인 폼으로 진행함"
             self.add("주의", where, f"테스트 값으로 제출 시 실패 문구 표시: '{fail}' (가입 후 로그인 자동 확인 못함: {why})",
                      f"{fstep} → 회원가입을 먼저 한 뒤 같은 계정({account_text()})으로 로그인해 확인")
         self.login_fail_pending = {}
 
     INVALID_FIELDS_JS = r"""
-    (i) => [...(document.querySelectorAll('form')[i]?.elements || [])]
+    (i) => { const f = i >= 0 ? document.querySelectorAll('form')[i] : document.querySelector('[data-qa-root]');
+      return [...(f ? (f.elements || f.querySelectorAll('input, select, textarea')) : [])]
       .filter(e => e.willValidate && !e.checkValidity())
       .map(e => `${e.getAttribute('name') || e.getAttribute('id') || e.type}: ${e.validationMessage}`.slice(0, 50))
-      .slice(0, 3)
+      .slice(0, 3); }
     """
 
     def _login_chain(self, verified):
@@ -1735,23 +2318,29 @@ class FileTester:
         logins = [f for f in self.pw_forms if not f["signup"]]
         if not logins:
             return "로그인 폼 없음"
-        if not signups:
-            return "회원가입 폼을 찾지 못함(가입이 <form>이 아니거나, 제출 버튼 글자·폼 id로 가입 폼임을 알 수 없음)"
-        s, l = signups[0], logins[0]
+        l = logins[0]
+        s = signups[0] if signups else None
         acct = account_text(("id", "email", "password", "name"))
-        flow = (f"{self.open_step(s['url'])} → {s['kind']}({s['name']})에 {acct}로 가입"
-                f" → {('같은 화면' if s['url'] == l['url'] else '주소 끝에 ' + repr(self.route_name(l['url'])) + ' 붙여 이동')}"
-                f" → {l['kind']}({l['name']})에 같은 계정으로 로그인")
-        where = f"{s['where']} → {l['where']}"
         try:
-            self.goto(s["url"])
-            if not self.page.locator("form").nth(s["idx"]).is_visible():
-                self._logout_if_available()
-                self._back_to(s["url"])
+            if s:
+                self.goto(s["url"])
                 if not self.page.locator("form").nth(s["idx"]).is_visible():
-                    return "제출할 회원가입 폼이 보이지 않음"
+                    self._logout_if_available()
+                    self._back_to(s["url"])
+                    if not self.page.locator("form").nth(s["idx"]).is_visible():
+                        return "제출할 회원가입 폼이 보이지 않음"
+                open_flow = f"{self.open_step(s['url'])} → {s['kind']}({s['name']})"
+            else:   # 가입 폼이 처음부터 안 보임 → 로그인 화면의 '회원가입' 버튼을 눌러 연다
+                s, why = self._find_signup_by_button(l)
+                if not s:
+                    return why
+                open_flow = f"{self.open_step(l['url'])} → '{s['trigger']}' 클릭 → {s['kind']}({s['name']})"
+            flow = (f"{open_flow}에 {acct}로 가입"
+                    f" → {('같은 화면' if s['url'] == l['url'] else '주소 끝에 ' + repr(self.route_name(l['url'])) + ' 붙여 이동')}"
+                    f" → {l['kind']}({l['name']})에 같은 계정으로 로그인")
+            where = f"{s['where']} → {l['where']}"
             self.events = []
-            info, changed, new_text, _ = self._submit_form(s["idx"], precheck=True)
+            info, changed, new_text, _ = self._submit_form(s["idx"], precheck=True, where=where, flow=flow)
             rest = self.flush_errors(where, flow)
             dialogs = [v for k, v in rest if k == "dialog"]
             dup = self._duplicate_message(new_text, dialogs)   # 앞 단계에서 이미 가입됨 → 로그인으로 진행
@@ -1767,6 +2356,8 @@ class FileTester:
                 return f"자동 회원가입 실패 문구 '{fail}'"
             if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
                 self._logout_if_available()
+            if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
+                self._open_login_ui(l)   # 같은 화면의 '로그인' 탭·버튼(새로고침 없이)
             reloaded = False
             if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
                 now, target = urlparse(self.page.url), urlparse(l["url"])
@@ -1785,7 +2376,7 @@ class FileTester:
                 if login_idx < 0:
                     return "제출할 로그인 폼이 보이지 않음"
                 prev_fail = fail
-                info, changed, new_text, _ = self._submit_form(login_idx, mode)
+                info, changed, new_text, _ = self._submit_form(login_idx, mode, where=where, flow=flow, post_auth=True)
                 rest = self.flush_errors(where, flow)
                 fail = self._fail_message(new_text, [v for k, v in rest if k == "dialog"])
                 if not fail and prev_fail:
@@ -1823,6 +2414,8 @@ class FileTester:
                 )
                 login_still_visible = after and after["loginFormVisible"]
                 self.chain_passed = not login_still_visible or bool(has_member_marker)
+                if self.chain_passed:
+                    self.add("통과", where, "회원가입 → 같은 계정 로그인 정상 동작", flow)
                 if not self.chain_passed:
                     self.add(level, where, f"가입한 계정의 로그인 상태를 확인할 수 없음{note}",
                              flow + " → 로그인 폼이 닫히거나 회원 메뉴가 나타나는지 확인")
@@ -2016,24 +2609,33 @@ class FileTester:
             y, m = (y + 1, 1) if m == 12 else (y, m + 1)
         return out
 
+    def _stage(self, i):
+        """진행 표시: '파일 3/100 이름  [2/5단계 ●◉○○○] 클릭 검사' + 전체 진행 막대 갱신"""
+        n = len(STAGES)
+        marks = "".join("■" if k <= i else "□" for k in range(n))
+        self.bar.set_description(f"  └ {self.label}[{i + 1}/{n}단계 {marks}] {STAGES[i]}")
+        self.bar.set_postfix_str("")
+        if self.stage_cb:
+            self.stage_cb(i)
+
     def run(self):
         routes = []
         try:
             self.bar.reset(total=1)
-            self.bar.set_description(f"  ├ {self.file.name[:25]} 화면 탐색")
+            self._stage(0)
             routes = self.discover_routes()
             self.bar.update(1)
 
-            self.bar.set_description(f"  ├ {self.file.name[:25]} 클릭 검사")
+            self._stage(1)
             self.test_clicks(routes)
 
-            self.bar.set_description(f"  ├ {self.file.name[:25]} hover 메뉴")
+            self._stage(2)
             self.test_hidden()
 
-            self.bar.set_description(f"  └ {self.file.name[:25]} 폼 검사")
+            self._stage(3)
             self.test_forms(routes)
 
-            self.bar.set_description(f"  └ {self.file.name[:25]} 캘린더")
+            self._stage(4)
             self.test_calendars(routes)
             self.report_coverage(routes)
         except Exception as e:  # 한 파일이 죽어도 전체는 계속
@@ -2146,6 +2748,8 @@ def row_label(level, msg, cat):
     캘린더 [일치] → '정상', [확인 필요] → '수동', 나머지는 원래 구분 그대로
     """
     body = re.sub(r"^\[(일치|불일치|확인 필요)\]\s*", "", msg)
+    if level == "통과":   # 로그인·인증창이 실제로 동작함을 확인한 내용
+        return "정상", f"{cat}: {msg}"
     if level == "요구사항":
         if msg.startswith("[불일치]"):
             return ("수정", f"{cat} 체크 필요(요구사항 불일치): {body}") if cat in FIX_CATEGORIES else ("주의", body)
@@ -2164,6 +2768,8 @@ def feature_category(msg, where=""):
     t = f"{msg} {where}"
     if "캘린더" in t or "달력" in t or "날짜 입력칸" in t or "월 탭" in t:
         return "캘린더"
+    if "인증창" in t:
+        return "인증"
     if any(w in t for w in ("로그인", "로그아웃", "회원가입", "가입")):
         return "로그인"
     if "다운로드" in t:
@@ -2245,6 +2851,8 @@ def main():
     if PER_FILE_CSV:
         per_dir.mkdir(exist_ok=True)
     print(f"파일 하나가 끝날 때마다 저장: {out_csv}" + (f" / {per_dir}" if PER_FILE_CSV else ""))
+    print(f"검수 대상 {len(files)}개 파일 × {len(STAGES)}단계 = 총 {len(files) * len(STAGES)}단계  "
+          f"({' → '.join(f'{i}.{n}' for i, n in enumerate(STAGES, 1))})")
 
     rows = []
     cal_summary = Counter()
@@ -2257,12 +2865,20 @@ def main():
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=HEADLESS)
-            file_bar = tqdm(files, desc="전체 파일", unit="file", position=0, ncols=100)
-            inner_bar = tqdm(total=1, desc="  ├ 준비", position=1, ncols=100, leave=False)
-            for f in file_bar:
-                file_bar.set_postfix_str(f.name[:30])
-                t = FileTester(browser, f, origin, inner_bar)
+            n_stage = len(STAGES)
+            total_steps = len(files) * n_stage
+            file_bar = tqdm(total=total_steps, desc="전체 진행", unit="단계", position=0, dynamic_ncols=True,
+                            bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}단계 [{elapsed}<{remaining}]")
+            inner_bar = tqdm(total=1, desc="  └ 준비", position=1, dynamic_ncols=True, leave=False,
+                             bar_format="{desc} {percentage:3.0f}%|{bar:12}| {n_fmt}/{total_fmt} {postfix}")
+            for fi, f in enumerate(files):
+                def on_stage(i, fi=fi, f=f):   # 전체 진행 막대: 지금까지 끝낸 단계 수로 맞춤
+                    file_bar.update(fi * n_stage + i - file_bar.n)
+                    file_bar.set_description_str(f"전체 진행 · 파일 {fi + 1}/{len(files)} {f.name[:22]}")
+                t = FileTester(browser, f, origin, inner_bar, stage_cb=on_stage,
+                               label=f"파일 {fi + 1}/{len(files)} {f.name[:20]} ")
                 n_routes = t.run()
+                file_bar.update((fi + 1) * n_stage - file_bar.n)
                 file_rows = t.rows()
                 rows += file_rows
 
@@ -2321,6 +2937,12 @@ def main():
         print(f"정상 아닌 파일·'수정' 파일 {len(moved)}개를 '{EDIT_DIR}'로 이동:")
         for old, new in moved:
             print(f"  이동: {old}" if old == new else f"  이동(이름 변경): {old} → {new}")
+
+    # 맨 마지막 줄: 결과 CSV 행 기준 비정상 건수(괄호 안 구분 순서 = 숫자 순서)
+    abn = Counter(r[1] for r in rows)
+    abn_files = {r[0] for r in rows if r[1] in ABNORMAL_LABELS}
+    print(f"\n비정상({', '.join(ABNORMAL_LABELS)}) " + ", ".join(str(abn[k]) for k in ABNORMAL_LABELS)
+          + f"  → 합계 {sum(abn[k] for k in ABNORMAL_LABELS)}건 (해당 파일 {len(abn_files)}개 / 전체 {len(files)}개)")
 
 if __name__ == "__main__":
     main()
