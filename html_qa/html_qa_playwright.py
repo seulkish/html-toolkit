@@ -36,6 +36,16 @@ _edit 버전에서 바뀐 점
     - 종료 후 '비정상(주의, 오류, 경고, 수정)' 건수를 터미널 마지막 줄에 출력
     - '클릭해도 반응 없음'·'다른 요소에 가려져 클릭 불가'를 근거와 함께 구분: 늦은 반응·저장만 하는 버튼은 반응으로 인정,
       일시적으로 덮는 로딩 막은 기다렸다가 클릭, 가리는 요소의 정체(위치·z-index·화면 비율)를 메시지에 표시
+
+v2(인증 패치)에서 바뀐 점
+    - 비밀번호 없는 인증 폼: 이름·휴대폰(이메일)만 넣고 인증번호로 확인하는 폼도 로그인·가입 폼으로 보고
+      '가입 인증 → 같은 정보로 로그인 인증'까지 확인. 탭(회원 로그인·회원가입·비회원)은 제출 버튼 글자로 구분
+    - 클릭해야 나타나는 로그인 창(모달·소셜 로그인)도 폼 검사 대상에 포함. '동의하고 계속하기' 같은 중간 단계를 넘긴 뒤 인증창 확인
+    - 인증번호 입력칸 찾기: 열려 있는 창 안에서만, one-time-code·'인증번호' 표시가 있는 칸 우선(이름·전화·쿠폰 칸 제외)
+    - 인증 성공 판정: 버튼 글자('인증 완료' 등)는 성공 문구로 보지 않음. 입력칸이 사라졌거나 성공 문구가 새로 나타나야 통과
+    - 체험 계정: '빠른 로그인'처럼 계정 안내 영역 안의 '입력'·'채우기' 버튼, '이메일 / 비밀번호'만 적힌 안내 줄도 인식
+    - 회원 전용 화면: 로그인이 확인되면 로그인 상태로 화면을 다시 훑어, 새로 나타난 폼(주문서 등)을 제출해 결제 인증창 확인
+      (이 단계에서는 인증창 결과와 JS·콘솔 오류만 기록)
 """
 
 import calendar
@@ -151,18 +161,35 @@ DEMO_BTN_RE = (r"(체험|데모|demo|테스트|test|샘플|sample|시연).{0,8}(
 DEMO_LINE_RE = r"(체험|데모|demo|테스트|test|샘플|sample|시연).{0,8}(계정|account)"   # 화면에 적힌 '체험 계정: 아이디 / 비밀번호' 안내 줄
 # 가입 폼이 처음부터 안 보일 때 로그인 화면에서 눌러 볼 버튼 글자 / 가입 후 로그인 창을 다시 열 버튼 글자(정확히 같을 때)
 SIGNUP_TRIGGER_RE = r"회원\s*가입|가입\s*하기|회원\s*등록|계정\s*(만들기|생성)|새\s*계정|sign ?up|register|create (an )?account|\bjoin\b"
-LOGIN_TRIGGER_RE = r"^(로그인|login|log in|sign in|signin)$"
+LOGIN_TRIGGER_RE = r"^(회원\s*)?(로그인|login|log in|sign in|signin)$"
 AUTH_TEST = True             # 인증창('인증번호 받기 → 번호 입력 → 확인')이 실제로 되는지 확인
 AUTH_SEND_RE = (r"인증\s*(번호|코드)?\s*(요청|받기|발송|전송|재전송|하기)|(본인|휴대폰|이메일|메일|문자)\s*인증"
                 r"|send ?(code|otp)|get ?(code|otp)")
 AUTH_OK_RE = r"인증\s*확인|확인|완료|제출|\bverify\b|\bconfirm\b|\bsubmit\b|\bok\b"
-AUTH_HINT_RE = r"인증|코드|otp|verif|code|authnum|auth|\bpin\b"
+AUTH_HINT_RE = r"인증|코드|otp|verif|code|authnum|\bpin\b"   # [v2] 'auth' 단독 제외(auth-name 같은 이름 칸 오인 방지)
 AUTH_SUCCESS_WORDS = ("인증되었", "인증 되었", "인증이 완료", "인증 완료", "인증완료", "인증 성공", "인증성공",
                       "확인되었", "성공", "완료", "verified", "success")
 LATE_WAIT_MS = 1500          # 클릭 직후 변화가 없을 때, 반응이 늦게 나타나는지 더 기다릴 최대 시간(ms). 0이면 끔
 COVER_WAIT_MS = 8000         # 다른 요소가 덮고 있을 때 풀리길(로딩 화면 등) 기다릴 최대 시간(ms)
 VIEWPORT_SIZE = (1280, 720)  # 브라우저 화면 크기(가로, 세로). 모바일 목업이면 (390, 844)처럼 바꿔 보세요
 AUTH_DEFAULT_CODE = "123456"  # 화면·알림에서 인증번호를 못 찾았을 때 넣어 볼 값(맞는 번호가 아닐 수 있음)
+# ── v2(인증 패치) 추가 설정 ──
+AUTH_FORM_TEST = True        # 비밀번호 없이 이름·휴대폰(이메일)을 넣고 인증번호로 확인하는 폼도 로그인·가입 폼처럼 검사
+GUEST_TAB_RE = r"비회원|게스트|guest|손님"   # '비회원 인증' 탭·버튼 글자
+REVEALED_FORM_TEST = True    # 버튼을 눌러야 나타나는 로그인 창(모달·소셜 로그인 등)도 검사
+REVEALED_FORM_MAX = 3        # 파일당 그런 로그인 창을 몇 개까지 검사할지
+REVEALED_FORM_STRICT = False # False: 그런 창에서는 '통과'만 결과에 남기고 문제는 '수동'으로 낮춤 / True: 일반 로그인 폼과 같은 구분으로 기록
+LOGIN_STEP_MAX = 3           # 로그인 제출 뒤 '동의하고 계속하기' 같은 중간 단계를 최대 몇 번 넘길지
+LOGIN_CONTINUE_RE = r"동의|계속|다음|허용|continue|next|agree|allow|accept"
+LOGIN_TRIGGER_LOOSE_RE = r"^(?!.*(로그아웃|logout|log ?out|sign ?out)).*(로그인|log ?in|sign ?in)"   # '로그인·비회원 인증'처럼 다른 글자가 붙은 로그인 버튼
+DEMO_ZONE_RE = r"체험|데모|demo|테스트\s*계정|test\s*account|샘플|sample|시연|빠른\s*로그인|간편\s*입력|quick\s*login"   # 계정 안내 영역 글자
+DEMO_FILL_RE = r"입력|채우기|채움|사용|적용|선택|불러오기|fill|use|apply"   # 그 영역 안의 '계정 채우기' 버튼 글자
+MEMBER_TEST = True           # 로그인이 확인되면 로그인 상태로 회원 전용 화면의 폼을 제출해, 제출 뒤 뜨는 인증창(결제 인증 등)을 확인
+MEMBER_MAX_ROUTES = 12       # 로그인 상태에서 새로 발견한 화면을 몇 개까지 열어 볼지(비로그인 때 본 화면은 모두 다시 엶)
+MEMBER_MAX_FORMS = 8         # 로그인 상태에서 제출해 볼 폼 수
+MEMBER_PREP_MAX = 3          # '바로 주문' 같은 버튼을 몇 번까지 눌러 다음 화면(주문서 등)으로 넘어가 볼지
+MEMBER_PREP_RE = r"바로\s*(주문|구매|결제)|구매하기|주문하기|결제하기|예매하기|buy now|order now|checkout"
+MEMBER_SKIP_RE = r"탈퇴|삭제|해지|초기화|withdraw|delete|remove|reset"   # 로그인 상태에서 제출하지 않을 폼(제출 버튼 글자)
 # ────────────────────────────────
 
 CLICKABLE_SELECTOR = (
@@ -270,10 +297,14 @@ FORM_STRUCT_JS = """
 """
 
 FILL_FORM_JS = r"""
-([idx, acct, mode, keep]) => {
+([idx, acct, mode, keep, opt]) => {
   const f = idx >= 0 ? document.querySelectorAll('form')[idx] : document.querySelector('[data-qa-root]');
   if (!f) return null;
   const pwCount = f.querySelectorAll('input[type=password]').length;
+  // [v2] smart: 비밀번호 칸이 없어도 이름·전화·이메일 칸을 알아보고 맞는 값을 넣음 / natural: 미리 선택·입력된 값은 그대로 둠
+  const smart = !!(opt && opt.smart), natural = !!(opt && opt.natural);
+  const sem = pwCount || smart;
+  const telLike = (el) => /tel/i.test(el.getAttribute('inputmode') || '') || /(^|\s)tel/i.test(el.getAttribute('autocomplete') || '');
   let hasPw = false, ambiguous = false;
   const used = {};
   // 입력칸 설명 글자: 연결된 <label>, 감싼 <label>, placeholder, aria-label, autocomplete, name, id
@@ -313,14 +344,31 @@ FILL_FORM_JS = r"""
     else if (t === 'date') set('2026-10-30');
     else if (t === 'time') set('10:00');
     else if (t === 'url') set('https://example.com');
-    else if (t === 'checkbox') { el.checked = true; el.dispatchEvent(new Event('change', {bubbles:true})); }
-    else if (t === 'radio') { el.checked = true; el.dispatchEvent(new Event('change', {bubbles:true})); }
-    else if (el.tagName === 'SELECT') { if (el.options.length > 1) el.selectedIndex = 1; el.dispatchEvent(new Event('change', {bubbles:true})); }
-    else if (pwCount && isEmail(h) && isId(h) && /또는|혹은|\bor\b|\//i.test(h)) { ambiguous = true; set(pick(mode)); }  // '이메일 또는 아이디'
-    else if (pwCount && isEmail(h)) set(pick('email'));          // '이메일 아이디'처럼 이메일이 들어간 칸은 이메일
-    else if (pwCount && isId(h)) set(pick('id'));
-    else if (pwCount && isTel(h)) set(pick('phone'));
-    else if (pwCount && isName(h)) set(pick('name'));
+    else if (t === 'checkbox') {
+      if (natural && !el.required && !/동의|확인|agree|accept|약관|terms/i.test(h)) continue;   // 필수·동의 체크만, 나머지는 기본값 유지
+      el.checked = true; el.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    else if (t === 'radio') {
+      if (natural) {   // 묶음에서 이미 선택된 것이 있으면 그대로, 없으면 첫 번째 것만 선택
+        const group = el.name ? [...f.querySelectorAll('input[type=radio]')].filter(r => r.name === el.name) : [el];
+        if (group.some(r => r.checked) || group.find(r => !r.disabled) !== el) continue;
+      }
+      el.checked = true; el.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    else if (el.tagName === 'SELECT') {
+      if (natural) {   // 유효한 값이 이미 선택돼 있으면 그대로, 아니면 고를 수 있는 첫 항목
+        const cur = el.options[el.selectedIndex];
+        if (cur && cur.value !== '' && !cur.disabled) continue;
+        const i = [...el.options].findIndex(o => o.value !== '' && !o.disabled);
+        if (i >= 0) el.selectedIndex = i;
+      } else if (el.options.length > 1) el.selectedIndex = 1;
+      el.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    else if (sem && isEmail(h) && isId(h) && /또는|혹은|\bor\b|\//i.test(h)) { ambiguous = true; set(pick(mode)); }  // '이메일 또는 아이디'
+    else if (sem && isEmail(h)) set(pick('email'));          // '이메일 아이디'처럼 이메일이 들어간 칸은 이메일
+    else if (sem && isId(h)) set(pick('id'));
+    else if (sem && (isTel(h) || telLike(el))) set(pick('phone'));
+    else if (sem && isName(h)) set(pick('name'));
     else if (pwCount === 1 && el.tagName === 'INPUT') { ambiguous = true; set(pick(mode)); }  // 설명 없는 로그인 칸
     else set(el.minLength > 0 ? '테스트'.padEnd(el.minLength, '1') : '테스트');
   }
@@ -385,7 +433,9 @@ SUBMIT_TARGET_JS = r"""
     list.forEach((e, i) => e.setAttribute('data-qa-pre', String(i)));
     return list.map(txt);
   }
-  const skip = /취소|닫기|중복|인증|찾기|보기|숨기기|cancel|close|check/i;
+  // [v2] '인증번호 받기'·'본인 인증'은 제출 버튼이 아니지만, '회원가입 인증'·'로그인 인증'처럼 제출 자체가 인증인 버튼은 제출 버튼으로 봄
+  const skipRe = /취소|닫기|중복|찾기|보기|숨기기|cancel|close|check/i;
+  const skip = { test: (t) => skipRe.test(t) || (/인증/.test(t) && !/로그인|가입|회원|log ?in|sign/i.test(t)) };
   const go = /가입|등록|로그인|확인|완료|제출|다음|join|sign|log ?in|submit|register|ok/i;
   let el = own.find(e => (e.type === 'submit' || (e.tagName === 'BUTTON' && !e.getAttribute('type'))) && !skip.test(txt(e)))
         || own.find(e => go.test(txt(e)) && !skip.test(txt(e)));
@@ -492,19 +542,41 @@ FORM_PEEK_JS = """
   const attrs = [f.getAttribute('id'), f.getAttribute('name'), f.getAttribute('class'), f.getAttribute('action')].join(' ');
   const signup = pwVis >= 2 || /가입|등록|sign ?up|register|join/i.test(btn) || /signup|sign-up|register|join/i.test(attrs);
   const name = (f.getAttribute('id') || f.getAttribute('name') || f.getAttribute('class') || ('form' + idx)).slice(0, 30);
-  return { pw, signup, name };
+  // [v2] 비밀번호 없이 이름·휴대폰(이메일)만 넣고 인증번호로 확인하는 폼: 제출 버튼이 '인증·로그인·가입'류이고 연락처 칸이 있음
+  const btnText = btn.trim().replace(/\\s+/g, ' ').slice(0, 30);
+  const contact = [...f.querySelectorAll('input')].some(i => {
+    const t = (i.type || 'text').toLowerCase();
+    if (['hidden', 'checkbox', 'radio', 'submit', 'button', 'file', 'image', 'password'].includes(t)) return false;
+    const own = [i.getAttribute('inputmode'), i.getAttribute('autocomplete'), i.getAttribute('name'), i.id, i.getAttribute('placeholder')].filter(Boolean).join(' ');
+    return t === 'tel' || t === 'email' || /tel|phone|mobile|e-?mail|전화|휴대폰|핸드폰|연락처|이메일/i.test(own);
+  });
+  const authish = /인증|로그인|본인\\s*확인|log ?in|sign ?in|verify/i.test(btn) || /가입|sign ?up|register|join/i.test(btn);
+  const isSearch = f.getAttribute('role') === 'search' || !!f.querySelector('input[type=search]');
+  const auth = pw === 0 && contact && authish && !isSearch;
+  return { pw, signup, name, auth, btn: btnText };
 }
 """
 
 # 화면을 다시 그리면 폼 순서가 바뀔 수 있으므로 이름과 비밀번호 필드로 로그인 폼을 다시 찾음.
 LOGIN_FORM_HELPER_JS = """
-  const findLoginForm = (name) => Array.from(document.forms).find((form, idx) => {
-    const identity = (form.getAttribute('id') || form.getAttribute('name') || form.getAttribute('class') || ('form' + idx)).slice(0, 30);
-    const pwShown = [...form.querySelectorAll('input[type=password]')].filter(i => { const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
-    if (identity !== name || pwShown !== 1) return false;
-    const { width, height } = form.getBoundingClientRect();
-    return width > 0 && height > 0 && getComputedStyle(form).visibility !== 'hidden';
-  });
+  // [v2] key가 '폼 이름\\u0001제출 버튼 글자'이면 비밀번호 없는 인증 폼: 제출 버튼 글자로 탭(로그인·가입·비회원)을 구분
+  const findLoginForm = (key) => {
+    const [name, want] = String(key).split('\\u0001');
+    return Array.from(document.forms).find((form, idx) => {
+      const identity = (form.getAttribute('id') || form.getAttribute('name') || form.getAttribute('class') || ('form' + idx)).slice(0, 30);
+      if (identity !== name) return false;
+      if (want === undefined) {
+        const pwShown = [...form.querySelectorAll('input[type=password]')].filter(i => { const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+        if (pwShown !== 1) return false;
+      } else {
+        const btn = [...form.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')]
+          .map(b => (b.innerText || b.value || '')).join(' ').trim().replace(/\\s+/g, ' ').slice(0, 30);
+        if (btn !== want) return false;
+      }
+      const { width, height } = form.getBoundingClientRect();
+      return width > 0 && height > 0 && getComputedStyle(form).visibility !== 'hidden';
+    });
+  };
 """
 
 LOGIN_FORM_INDEX_JS = """
@@ -864,31 +936,164 @@ AUTH_SEND_JS = r"""
 """
 
 # 화면에 보이는 인증번호 입력칸(data-qa-auth-code)과 그 옆 '확인' 버튼(data-qa-auth-ok)에 번호표를 붙임
+# [v2] 열려 있는 창(모달) 안에서만 찾고, one-time-code·'인증번호' 표시가 있는 칸을 우선함. 이름·전화·쿠폰 칸은 제외
 AUTH_CODE_JS = r"""
 ([hintRe, okRe]) => {
   document.querySelectorAll('[data-qa-auth-code],[data-qa-auth-ok]').forEach(e => { e.removeAttribute('data-qa-auth-code'); e.removeAttribute('data-qa-auth-ok'); });
   const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
     return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
   const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
-  const hx = new RegExp(hintRe, 'i'), ox = new RegExp(okRe, 'i');
-  const NOT_CODE = /e-?mail|이메일|전화번호|휴대폰번호|아이디/i, IS_CODE = /인증번호|인증 ?코드|otp|code/i;
-  const input = [...document.querySelectorAll('input, textarea')].find(e => {
+  const weak = new RegExp(hintRe, 'i'), ox = new RegExp(okRe, 'i');
+  const STRONG = /인증\s*번호|인증\s*코드|보안\s*코드|확인\s*코드|otp|one[-_ ]?time|verification|verify[-_ ]?code|auth[-_ ]?(code|num|no)|authnum|cert[-_ ]?(code|num|no)|sms[-_ ]?code|\bpin\b/i;
+  const NOT = /이름|성명|닉네임|name|e-?mail|이메일|메일|전화|휴대폰|핸드폰|연락처|phone|mobile|아이디|user|주소|address|검색|search|쿠폰|coupon|선물|gift|초대|invite|추천|referr|promo|할인|우편|zip|postal|상품권|voucher/i;
+  const modals = [...document.querySelectorAll('dialog[open], [aria-modal="true"], [role=dialog], [role=alertdialog]')].filter(vis);
+  const top = document.querySelector('dialog:modal') || modals[modals.length - 1] || null;
+  const hintOf = (e) => {
+    const parts = [e.getAttribute('placeholder'), e.getAttribute('aria-label'), e.getAttribute('name'), e.id, e.title];
+    if (e.id) { try { const lb = document.querySelector(`label[for="${CSS.escape(e.id)}"]`); if (lb) parts.push(lb.innerText); } catch (err) {} }
+    const wrap = e.closest('label'); if (wrap) parts.push(wrap.innerText);
+    return parts.filter(Boolean).join(' ');
+  };
+  let input = null, best = 0;
+  for (const e of (top || document).querySelectorAll('input, textarea')) {
     const t = (e.type || 'text').toLowerCase();
-    if (['hidden', 'password', 'checkbox', 'radio', 'submit', 'button', 'file', 'image', 'email', 'tel'].includes(t)) return false;
-    if (!vis(e) || e.disabled || e.readOnly) return false;
-    const own = [e.getAttribute('placeholder'), e.getAttribute('aria-label'), e.getAttribute('name'), e.id, e.title].filter(Boolean).join(' ');
-    return hx.test(own) && !(NOT_CODE.test(own) && !IS_CODE.test(own));
-  });
+    if (['hidden', 'password', 'checkbox', 'radio', 'submit', 'button', 'file', 'image', 'email', 'date', 'time', 'range', 'color', 'search', 'url'].includes(t)) continue;
+    if (!vis(e) || e.disabled || e.readOnly) continue;
+    const otc = /one-time-code/i.test(e.getAttribute('autocomplete') || '');
+    const own = hintOf(e);
+    const strong = otc || STRONG.test(own);
+    // 이름·전화·검색·쿠폰 칸은 'auth-name'·'gift-code'처럼 글자가 비슷해도 인증번호 칸이 아님
+    if (!strong && (t === 'tel' || NOT.test(own) || !weak.test(own))) continue;
+    const ml = e.maxLength > 0 ? e.maxLength : 0;
+    const score = (otc ? 10 : 0) + (STRONG.test(own) ? 6 : 0) + (weak.test(own) ? 2 : 0) + (ml >= 4 && ml <= 8 ? 2 : 0)
+                + (/numeric|decimal/i.test(e.getAttribute('inputmode') || '') ? 1 : 0);
+    if (score > best) { input = e; best = score; }
+  }
   if (!input) return null;
   input.setAttribute('data-qa-auth-code', '1');
-  let ok = null, box = input;
+  const NOT_OK = /재전송|다시|resend|받기|요청|발송|취소|닫기|중복|cancel|close/i;
+  // 확인 버튼: ① 입력칸이 속한 폼의 제출 버튼 ② 가까운 상위 요소의 '확인·완료'류 버튼
+  let ok = null;
+  if (input.form) ok = [...input.form.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')]
+    .find(e => vis(e) && !e.disabled && !NOT_OK.test(txt(e))) || null;
+  let box = input;
   for (let k = 0; k < 4 && box.parentElement && !ok; k++) {
     box = box.parentElement;
     ok = [...box.querySelectorAll('button, input[type=button], input[type=submit], [role=button], [onclick], a')]
-      .find(e => vis(e) && !e.disabled && ox.test(txt(e)) && !/재전송|다시|resend|받기|요청|발송|취소|닫기|중복/i.test(txt(e)));
+      .find(e => vis(e) && !e.disabled && ox.test(txt(e)) && !NOT_OK.test(txt(e)));
   }
   if (ok) ok.setAttribute('data-qa-auth-ok', '1');
-  return { maxlength: input.maxLength > 0 ? input.maxLength : 0, ok: ok ? txt(ok).slice(0, 20) : null };
+  // 인증번호가 적혀 있을 수 있는 주변 글자(창 또는 입력칸을 감싼 폼)
+  const around = top || input.form || input.parentElement;
+  const ctx = ((around && around.innerText) || '').split('\n').map(s => s.trim()).filter(Boolean).slice(0, 80);
+  return { maxlength: input.maxLength > 0 ? input.maxLength : 0, ok: ok ? txt(ok).slice(0, 20) : null, ctx,
+           field: (input.id || input.getAttribute('name') || '').slice(0, 30) };
+}
+"""
+
+# [v2] 눌렀던 인증 확인 버튼의 지금 글자·상태(인증 뒤 버튼이 '인증완료'로 바뀌는 화면을 알아보기 위함)
+AUTH_OK_STATE_JS = r"""
+() => { const b = document.querySelector('[data-qa-auth-ok]');
+  return b ? { text: (b.innerText || b.value || '').trim().replace(/\s+/g, ' '), disabled: !!b.disabled } : null; }
+"""
+
+# [v2] 버튼·링크·라벨에 적힌 글자 목록(성공·실패 '문구'와 구별하기 위함)
+CONTROL_LABELS_JS = r"""
+() => { const out = new Set();
+  for (const e of document.querySelectorAll('button, a, [role=button], [role=tab], input[type=button], input[type=submit], label, legend, option, summary')) {
+    for (const s of ((e.innerText || e.value || '') + '').split('\n')) { const t = s.trim(); if (t) out.add(t); } }
+  return [...out].slice(0, 3000); }
+"""
+
+# [v2] 열려 있는 창 안에 입력칸이 없고 '동의하고 계속하기' 같은 버튼만 있으면 그 버튼에 번호표(data-qa-continue)를 붙임
+MODAL_CONTINUE_JS = r"""
+(re) => {
+  document.querySelectorAll('[data-qa-continue]').forEach(e => e.removeAttribute('data-qa-continue'));
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+  const modals = [...document.querySelectorAll('dialog[open], [aria-modal="true"], [role=dialog], [role=alertdialog]')].filter(vis);
+  const top = document.querySelector('dialog:modal') || modals[modals.length - 1];
+  if (!top) return null;
+  // 입력칸이 보이는 단계는 사람이 값을 넣어야 하므로 넘기지 않음
+  if ([...top.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea, select')].some(e => vis(e) && !e.disabled)) return null;
+  const rx = new RegExp(re, 'i'), not = /취소|닫기|거부|나중|cancel|close|deny|later|skip/i;
+  const el = [...top.querySelectorAll('button, [role=button], input[type=button], input[type=submit], a[onclick], [onclick]')]
+    .find(e => vis(e) && !e.disabled && rx.test(txt(e)) && !not.test(txt(e)));
+  if (!el) return null;
+  el.setAttribute('data-qa-continue', '1');
+  return txt(el).slice(0, 20);
+}
+"""
+
+# [v2] 로그인 폼 주변에서 '빠른 로그인'·'체험 계정' 같은 계정 안내 영역을 찾아, 그 안의 '입력'·'채우기' 버튼에 번호표(data-qa-demo)를 붙임
+DEMO_ZONE_JS = r"""
+([idx, zoneRe, fillRe]) => {
+  const f = document.querySelectorAll('form')[idx];
+  if (!f) return null;
+  document.querySelectorAll('[data-qa-demo]').forEach(e => e.removeAttribute('data-qa-demo'));
+  const vis = (e) => { const r = e.getBoundingClientRect(); const st = getComputedStyle(e);
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; };
+  const txt = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || e.title || '').trim().replace(/\s+/g, ' ');
+  const zx = new RegExp(zoneRe, 'i'), fx = new RegExp(fillRe, 'i');
+  let box = f.parentElement;
+  for (let k = 0; k < 3 && box && box !== document.body; k++, box = box.parentElement) {
+    const zones = [...box.querySelectorAll('div, section, aside, ul, ol, li, table, tr, fieldset, p')]
+      .filter(z => !z.contains(f) && !f.contains(z) && vis(z) && (z.innerText || '').length <= 400 && zx.test(z.innerText || ''));
+    const inner = zones.filter(z => !zones.some(o => o !== z && z.contains(o)));   // 가장 작은 묶음부터
+    for (const z of inner) {
+      const btn = [...z.querySelectorAll('button, [role=button], input[type=button], a[onclick], [onclick]')]
+        .find(b => vis(b) && !b.disabled && txt(b).length <= 20 && fx.test(txt(b)));
+      if (btn) { btn.setAttribute('data-qa-demo', '1');
+        return { label: txt(btn).slice(0, 20), zone: ((z.innerText || '').trim().split('\n')[0] || '').trim().slice(0, 20) }; }
+    }
+  }
+  return null;
+}
+"""
+
+# [v2] 지금 보이는 폼 목록(번호·이름·비밀번호 칸 수). 창(dialog)이 열려 있으면 그 안의 폼만
+FORMS_INFO_JS = """
+() => {
+  const modal = document.querySelector('dialog:modal');
+  return [...document.querySelectorAll('form')].flatMap((form, index) => {
+    if (form.closest('[inert]') || (modal && !modal.contains(form))) return [];
+    const { width, height } = form.getBoundingClientRect();
+    if (!(width > 0 && height > 0 && getComputedStyle(form).visibility === 'visible')) return [];
+    const name = (form.getAttribute('id') || form.getAttribute('name') || form.getAttribute('class') || ('form' + index)).slice(0, 30);
+    return [{ idx: index, name, pw: form.querySelectorAll('input[type=password]').length }];
+  });
+}
+"""
+
+# [v2] 글자가 같은 클릭 요소 하나에 번호표(data-qa-opener)를 붙임(클릭해야 나타나는 로그인 창을 다시 열기 위함)
+OPENER_JS = r"""
+([sel, tag, text]) => {
+  document.querySelectorAll('[data-qa-opener]').forEach(e => e.removeAttribute('data-qa-opener'));
+  for (const el of document.querySelectorAll(sel)) {
+    if (el.tagName.toLowerCase() !== tag || el.disabled) continue;
+    const r = el.getBoundingClientRect(); const st = getComputedStyle(el);
+    if (!(r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none')) continue;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || el.title || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (t === text) { el.setAttribute('data-qa-opener', '1'); return true; }
+  }
+  return false;
+}
+"""
+
+# [v2] '바로 주문' 같은 버튼(폼 밖) 하나에 번호표(data-qa-prep)를 붙임
+PREP_BTN_JS = r"""
+(re) => {
+  document.querySelectorAll('[data-qa-prep]').forEach(e => e.removeAttribute('data-qa-prep'));
+  const rx = new RegExp(re, 'i');
+  for (const el of document.querySelectorAll('button, a, [role=button], input[type=button]')) {
+    if (el.closest('form') || el.disabled) continue;
+    const r = el.getBoundingClientRect(); const st = getComputedStyle(el);
+    if (!(r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none')) continue;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+    if (t && t.length <= 20 && rx.test(t)) { el.setAttribute('data-qa-prep', '1'); return t; }
+  }
+  return null;
 }
 """
 
@@ -1003,11 +1208,33 @@ def parse_demo_credentials(lines):
                 continue
             user, pw = em.group(0), m2.group(1)
         return {("email" if "@" in user else "id"): user.rstrip(".,;)"), "password": pw.rstrip(".,;)")}
+    # [v2] '빠른 로그인' 같은 안내 근처에 'demo@example.com / Demo1234!'처럼 이메일 / 비밀번호만 적힌 줄
+    for i, line in enumerate(lines):
+        em = EMAIL_RE.search(line)
+        if not em or not any(re.search(DEMO_ZONE_RE, x, re.I) for x in lines[max(0, i - 3):i + 1]):
+            continue
+        m2 = re.match(r"\s*[/|,·:：]\s*(?:비밀번호|비번|password|\bpw\b|\bpass\b)?\s*[:：=]?\s*([^\s,/|·]{4,40})\s*$", line[em.end():], re.I)
+        if m2:
+            return {"email": em.group(0).rstrip(".,;)"), "password": m2.group(1).rstrip(".,;)")}
     return None
 
 
-def extract_auth_code(texts):
-    """알림·화면 문구에서 '인증번호: 482913' 같은 안내 번호를 찾음. (번호, 화면에 안내된 값인지). 없으면 ('', False)"""
+AUTH_CODE_NEAR_RE = re.compile(r"(?:인증\s*번호|인증\s*코드|보안\s*코드|확인\s*코드|otp|verification code|코드|code)"
+                               r"\D{0,15}?(?<![\d-])(\d{4,8})(?![\d-])", re.I)
+
+
+def extract_auth_code(texts, strict=False):
+    """
+    알림·화면 문구에서 '인증번호: 482913' 같은 안내 번호를 찾음. (번호, 화면에 안내된 값인지). 없으면 ('', False)
+    [v2] '인증번호' 같은 말 바로 뒤에 오는 번호를 먼저 찾음.
+         strict=True면 그런 번호만 인정(인증창 안의 다른 숫자를 인증번호로 오인하지 않도록).
+    """
+    for t in texts:
+        m = AUTH_CODE_NEAR_RE.search(t)
+        if m:
+            return m.group(1), True
+    if strict:
+        return "", False
     for t in texts:
         if not re.search(r"인증|코드|번호|code|otp|pin", t, re.I):
             continue
@@ -1080,6 +1307,17 @@ class FileTester:
         self.demo_ok = set()          # 체험 계정으로 로그인이 확인된 로그인 폼
         self.last_demo = None         # 직전 제출에서 쓴 체험 계정 정보
         self.last_auth = None         # 직전 제출 직후 인증창 결과(ok/fail/unknown/None)
+        # ── [v2] 인증 패치용 상태 ──
+        self.revealed_forms = []      # 버튼을 눌러야 나타나는 로그인 폼 {url, name, tag, text, label}
+        self.revealed_names = set()
+        self.route_forms = {}         # url -> 처음부터 보이는 폼 이름
+        self.guest_form_names = set() # 비로그인 상태에서 본 폼 이름(회원 전용 화면에서 '새 폼'을 가려내기 위함)
+        self.guest_routes = []        # 비로그인 상태에서 찾은 화면 목록
+        self.login_ok = set()         # 제출(+인증번호) 뒤 로그인 상태 표시까지 확인된 폼
+        self.soft_where = set()       # 클릭해야 나타나는 창의 폼(문제는 '수동'으로 낮춰 기록)
+        self.last_steps = []          # 직전 제출 뒤 넘긴 중간 단계 버튼('동의하고 계속하기' 등)
+        self._chain_login = None      # 가입 → 로그인 연속 검사에 쓴 로그인 폼
+        self._mute = False            # True인 동안은 결과를 기록하지 않음(준비 단계용)
         self.origin = origin
         rel = html_file.resolve().relative_to(SERVE_ROOT)
         self.base_path = "/" + rel.as_posix()
@@ -1193,6 +1431,8 @@ class FileTester:
 
     # ── 결과 기록 ──
     def add(self, level, where, msg, flow=""):
+        if self._mute:   # [v2] 준비 단계(회원 전용 화면 검사를 위한 로그인 등)에서는 기록하지 않음
+            return
         locs = self.findings.setdefault((level, msg), [])
         if all(w != where for w, _ in locs):
             locs.append((where, flow))
@@ -1366,6 +1606,7 @@ class FileTester:
         if queue:
             self.add("수동", f"미방문 화면 {len(queue)}개", f"화면 탐색 제한(MAX_ROUTES={MAX_ROUTES}) 도달 — 일부 화면 미검사",
                      f"{self.file.name} 열기 → " + ", ".join(f"'{self.route_name(u)}'" for u in queue[:MAX_SAMPLES]) + " 등으로 이동해 확인")
+        self.guest_routes = list(routes)   # [v2] 회원 전용 화면 검사 때 다시 열어 볼 목록
         return routes
 
     # ── 2단계: 모든 클릭 요소 테스트 (+ 클릭 후 나타난 버튼까지 한 단계 더) ──
@@ -1557,6 +1798,7 @@ class FileTester:
             try:
                 self.goto(url)
                 els = self.page.evaluate(TAG_ELEMENTS_JS, CLICKABLE_SELECTOR)
+                self.route_forms[url] = self._form_names()   # [v2] 처음부터 보이는 폼(클릭 후 새로 나타난 폼과 구별)
                 self.route_visible[url] = {tuple(x) for x in self.page.evaluate(VISIBLE_SIGS_JS, CLICKABLE_SELECTOR)}
                 for el in els:
                     if "바로가기" in el["text"] and el["href"].startswith("#"):
@@ -1603,6 +1845,7 @@ class FileTester:
                     changed, url_changed = res
                     dirty = changed
                     if changed and not url_changed:
+                        self._note_revealed_forms(url, el, label)   # [v2] 클릭으로 나타난 로그인 창
                         kids = self._new_clickables(url)
                         if kids:
                             self.test_children(url, el, where, step, kids)
@@ -1722,13 +1965,14 @@ class FileTester:
                 self.add("오류", where, f"다운로드 오류: {str(e).split(chr(10))[0][:80]}", dl_flow)
 
     # ── 3단계: 폼(로그인/회원가입/검색 등) 테스트 ──
-    def _fill_form(self, idx, mode=None, acct=None, keep=False):
-        return self.page.evaluate(FILL_FORM_JS, [idx, acct or TEST_ACCOUNT, mode or LOGIN_KEY_ORDER[0], keep])
+    def _fill_form(self, idx, mode=None, acct=None, keep=False, opt=None):
+        return self.page.evaluate(FILL_FORM_JS, [idx, acct or TEST_ACCOUNT, mode or LOGIN_KEY_ORDER[0], keep, opt or {}])
 
     def _press(self, selector):
         self.page.locator(selector).first.click(timeout=2000)
 
-    def _submit_form(self, idx, mode=None, precheck=False, demo=False, where=None, flow="", post_auth=False):
+    def _submit_form(self, idx, mode=None, precheck=False, demo=False, where=None, flow="", post_auth=False,
+                     keep=False, fill_opt=None, steps=False):
         """
         폼 idx를 채워 제출. (info, changed, 새로 나타난 문구·알림 목록, rest)를 돌려줌.
         idx=-1이면 <form> 태그 없이 만든 입력 묶음(data-qa-root)을 같은 방식으로 채워 제출.
@@ -1741,7 +1985,7 @@ class FileTester:
         """
         if idx >= 0 and idx not in self.page.evaluate(VISIBLE_FORMS_JS, False):
             return None, False, [], []
-        self.last_demo, self.last_auth = None, None
+        self.last_demo, self.last_auth, self.last_steps = None, None, []
         if demo:
             self.last_demo = self._prepare_demo(idx, where or "로그인 폼", flow)
         d = self.last_demo
@@ -1750,7 +1994,7 @@ class FileTester:
             if info:
                 info["used"] = {"체험 계정": d["how"]}
         else:
-            info = self._fill_form(idx, mode)
+            info = self._fill_form(idx, mode, None, keep, fill_opt)   # [v2] keep·fill_opt: 회원 전용 화면·인증 폼용
         if not info:
             return None, False, [], []
         if precheck:
@@ -1810,14 +2054,25 @@ class FileTester:
             "waited": CLICK_WAIT_MS + 200 + waited,
         }
         # 제출 직후 '새로' 뜬 인증창(로그인 2단계 인증 등): 오류로 보지 않고 실제로 되는지 확인
-        if post_auth and where and AUTH_TEST and not had_code and self._auth_info():
-            seed = [v for k, v in self.events if k == "dialog"] + new_text   # 인증번호가 알림·화면에 적혀 있을 수 있음
-            self.last_auth = self._run_auth(None, where, flow, allow_send=False, seed_texts=seed)
-            changed = True
-            if self.last_auth == "ok":   # 인증까지 끝난 뒤 화면 기준으로 다시 비교
+        if post_auth and where and AUTH_TEST and not had_code:
+            if steps and not self._auth_info():
+                self.last_steps = self._pass_modal_steps()   # [v2] '동의하고 계속하기' 같은 중간 단계를 넘김
+            if self._auth_info():
+                try:
+                    now_text = self.page.evaluate(TEXT_LINES_JS)
+                except PWError:
+                    now_text = []
+                # 인증번호가 알림·화면에 적혀 있을 수 있음
+                seed = [v for k, v in self.events if k == "dialog"] + [t for t in now_text if t not in before_text]
+                self.last_auth = self._run_auth(None, where, flow, allow_send=False, seed_texts=seed)
+                changed = True
+                if self.last_auth == "ok":   # 인증까지 끝난 뒤 화면 기준으로 다시 비교
+                    new_text = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before_text]
+                else:
+                    new_text = []   # 인증창 문구를 로그인 실패 문구로 오인하지 않음(인증창 결과는 따로 기록됨)
+            elif self.last_steps:
+                changed = True
                 new_text = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before_text]
-            else:
-                new_text = []   # 인증창 문구를 로그인 실패 문구로 오인하지 않음(인증창 결과는 따로 기록됨)
         return info, changed, new_text, []
 
     def _submit_detail(self):
@@ -1833,6 +2088,88 @@ class FileTester:
                 f" / 판정 근거: {reaction_detail(d['url'], d['dom'], d['vis'], d['events'], with_values=False)}"
                 f" / 제출 후 {d['waited']}ms 이상 대기"
                 f" / 추정: 응답이 더 늦게 오거나, 잠깐 떴다 사라지는 안내이거나, 화면에 드러나지 않는 처리(저장만 하는 경우)일 수 있음")
+
+    # ── [v2] 인증 패치: 보조 함수 ──
+    def _forms_info(self):
+        try:
+            return self.page.evaluate(FORMS_INFO_JS)
+        except PWError:
+            return []
+
+    def _form_names(self):
+        return {f["name"] for f in self._forms_info()}
+
+    def _control_labels(self):
+        """버튼·링크·라벨에 적힌 글자 모음(이 글자는 성공·실패 '문구'로 보지 않음)"""
+        try:
+            return set(self.page.evaluate(CONTROL_LABELS_JS))
+        except PWError:
+            return set()
+
+    def _note_revealed_forms(self, url, el, label):
+        """클릭으로 새로 나타난 로그인 폼(비밀번호 칸이 있는 폼)을 적어 둠 → 폼 검사 단계에서 같은 버튼을 눌러 검사"""
+        if not REVEALED_FORM_TEST or not el.get("text") or len(self.revealed_forms) >= REVEALED_FORM_MAX:
+            return
+        base = self.route_forms.get(url, set())
+        for f in self._forms_info():
+            if not f["pw"] or f["name"] in base or f["name"] in self.revealed_names:
+                continue
+            self.revealed_names.add(f["name"])
+            self.revealed_forms.append({"url": url, "name": f["name"], "tag": el["tag"], "text": el["text"], "label": label})
+
+    def _open_by(self, opener):
+        """적어 둔 버튼(글자가 같은 것)을 다시 눌러 로그인 창을 엶"""
+        try:
+            if not self.page.evaluate(OPENER_JS, [CLICKABLE_SELECTOR, opener["tag"], opener["text"]]):
+                return False
+            self.page.locator("[data-qa-opener]").first.click(timeout=2000)
+            self.page.wait_for_timeout(CLICK_WAIT_MS)
+            self.wait_settled()
+            return True
+        except PWError:
+            return False
+
+    def _pass_modal_steps(self):
+        """로그인 제출 뒤 열려 있는 창에 '동의하고 계속하기' 같은 버튼만 있으면 눌러 다음 단계로 넘김. 누른 버튼 글자 목록을 돌려줌"""
+        done = []
+        for _ in range(LOGIN_STEP_MAX):
+            try:
+                label = self.page.evaluate(MODAL_CONTINUE_JS, LOGIN_CONTINUE_RE)
+                if not label:
+                    break
+                self.page.locator("[data-qa-continue]").first.click(timeout=2000)
+                self.page.wait_for_timeout(CLICK_WAIT_MS)
+                self.wait_settled()
+            except PWError:
+                break
+            done.append(label)
+            if self._auth_info():
+                break
+        return done
+
+    def _login_fail(self, new_text, dialogs, key):
+        """실패 문구 찾기. 로그인 폼이 사라지고 로그아웃 버튼이 보이면(=로그인됨) 옮겨 간 화면의 글자는 실패 문구로 보지 않음"""
+        fail = self._fail_message(new_text, dialogs)
+        if fail and not self._fail_message([], dialogs):
+            st = self._login_state(key)
+            if st and not st["loginFormVisible"] and any(w in st["member"] for w in ("로그아웃", "logout", "log out", "sign out")):
+                return ""
+        return fail
+
+    def _login_result(self, where, fstep, key, before, what="로그인"):
+        """제출(+중간 단계·인증번호) 뒤 로그인 상태 표시가 새로 나타났으면 '통과'로 기록"""
+        after = self._login_state(key)
+        if not (before and after):
+            return False
+        new_member = [w for w in after["member"] if w not in before["member"]]
+        if not (new_member or after["memberSel"]) or after["loginFormVisible"]:
+            return False
+        steps = "".join(f" → '{s}'" for s in self.last_steps)
+        auth = " → 인증번호 입력" if self.last_auth == "ok" else ""
+        shown = ", ".join(f"'{w}'" for w in new_member[:2]) or "회원 전용 요소"
+        self.add("통과", where, f"{what} 정상 동작: 제출{steps}{auth} 후 로그인 상태 표시({shown}) 확인", fstep)
+        self.login_ok.add(where)
+        return True
 
     # ── 체험 계정 ──
     def _prepare_demo(self, idx, where, flow):
@@ -1859,6 +2196,15 @@ class FileTester:
                     return {"how": f"'{label}' 버튼으로 자동 입력", "keep": True}
                 self.add("주의", where, f"체험 계정 버튼 '{label}'을 눌러도 입력칸이 채워지지 않음(눌러서 바로 로그인되는 방식일 수 있음)",
                          f"{step} → 아이디·비밀번호 칸이 채워지는지 확인")
+            # [v2] '빠른 로그인'처럼 계정 안내 영역 안의 '입력'·'채우기' 버튼(버튼 글자만으로는 체험 계정인지 알 수 없는 경우)
+            zone = self.page.evaluate(DEMO_ZONE_JS, [idx, DEMO_ZONE_RE, DEMO_FILL_RE])
+            if zone:
+                self.page.locator("[data-qa-demo]").first.click(timeout=2000)
+                self.page.wait_for_timeout(CLICK_WAIT_MS)
+                self.wait_settled()
+                self.flush_errors(where, f"{flow} → '{zone['label']}' 클릭")
+                if pw_filled():
+                    return {"how": f"'{zone['zone']}' 계정 안내의 '{zone['label']}' 버튼으로 자동 입력", "keep": True}
             cred = parse_demo_credentials(self.page.evaluate(DEMO_TEXT_JS, idx))
             if cred:
                 key = "email" if "email" in cred else "id"
@@ -1938,6 +2284,8 @@ class FileTester:
         if not info:
             return None
         code, known = extract_auth_code(heard)
+        if not code:   # [v2] 인증창 안에 적힌 번호('인증번호 123456' 형태만 인정)
+            code, known = extract_auth_code(info.get("ctx") or [], strict=True)
         if not code:
             n = info.get("maxlength") or 0
             code = AUTH_DEFAULT_CODE[:n] if 0 < n < len(AUTH_DEFAULT_CODE) else AUTH_DEFAULT_CODE
@@ -1953,7 +2301,13 @@ class FileTester:
         self.wait_settled()
         rest = self.flush_errors(where, step)
         dlg = [v for k, v in rest if k == "dialog"]
-        new = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before]
+        labels = self._control_labels()   # [v2] 버튼·라벨 글자('인증 완료' 버튼 등)는 성공·실패 문구로 보지 않음
+        new = [t for t in self.page.evaluate(TEXT_LINES_JS) if t not in before and t not in labels]
+        try:
+            okst = self.page.evaluate(AUTH_OK_STATE_JS)   # 눌렀던 확인 버튼의 지금 글자
+        except PWError:
+            okst = None
+        still = self._auth_info()   # 인증번호 입력칸이 아직 입력 가능한 상태로 보이는가
         via = f"'{send}' 클릭 → " if send else ""
         flow2 = f"{step} → {via}인증번호 입력({code}{'' if known else ', 화면에서 번호를 못 찾아 임의 값'}) → '{ok_label or 'Enter'}'"
         fail = self._fail_message(new, dlg)
@@ -1966,10 +2320,19 @@ class FileTester:
                          flow2 + " → 실제 인증번호로 직접 확인")
             return "fail"
         ok_msg = next((t for t in dlg + new if any(w in t.lower() for w in AUTH_SUCCESS_WORDS)), "")
+        if (not ok_msg and okst and ok_label and okst["text"][:20] != ok_label
+                and any(w in okst["text"].lower() for w in AUTH_SUCCESS_WORDS)):
+            ok_msg = okst["text"]   # [v2] 같은 확인 버튼의 글자가 '인증완료'처럼 바뀜
+        # [v2] 인증 성공을 직접 말하는 문구('인증되었습니다' 등)를 우선. 인증창이 닫힌 경우 옮겨 간 화면의 '완료'류 글자(진행 단계 표시 등)는 성공 문구로 적지 않음
+        strong = next((t for t in dlg + new if any(w in t.lower() for w in AUTH_SUCCESS_WORDS if w not in ("성공", "완료", "success"))), "")
+        if strong:
+            ok_msg = strong
+        elif not still:
+            ok_msg = ""
         if ok_msg:
             self.add("통과", where, f"인증창 정상 동작: {via}인증번호 입력 → 확인 후 '{ok_msg[:40]}' 표시", flow2)
             return "ok"
-        if not self._auth_info():
+        if not still:
             self.add("통과", where, f"인증창 정상 동작: {via}인증번호 입력 → 확인 후 인증창이 닫힘(성공 문구는 따로 없음)", flow2)
             return "ok"
         self.add("주의", where, "인증창: 인증번호를 입력하고 확인했으나 결과(성공·실패 표시)를 찾지 못함", flow2 + " → 결과가 표시되는지 직접 확인")
@@ -1982,6 +2345,8 @@ class FileTester:
             peek = self.page.evaluate(FORM_PEEK_JS, idx)
             if peek and peek["pw"] and peek["signup"]:
                 return idx, peek["name"], "회원가입 폼"
+            if peek and AUTH_FORM_TEST and peek.get("auth") and peek["signup"] and l.get("auth"):   # [v2] 비밀번호 없는 가입 인증 폼
+                return idx, peek["name"] + "\u0001" + peek["btn"], "가입 인증 폼"
         root = self.page.evaluate(SIGNUP_ROOT_JS, [l["name"]])
         if root:
             return -1, root["name"], "가입 입력칸(<form> 태그 없음)"
@@ -2008,12 +2373,16 @@ class FileTester:
         if not found:
             return None, f"'{trig}' 버튼을 눌렀으나 가입 입력칸(비밀번호 칸이 있는 묶음)을 찾지 못함"
         idx, name, kind = found
-        return {"url": self.page.url, "idx": idx, "name": name, "kind": kind, "trigger": trig, "signup": True,
-                "where": f"{self.route_name(l['url'])} > '{trig}' 클릭 후 {kind}({name})"}, None
+        disp = name.replace("\u0001", "·")
+        return {"url": self.page.url, "idx": idx, "name": name, "disp": disp, "kind": kind, "trigger": trig, "signup": True,
+                "auth": "\u0001" in name,
+                "where": f"{self.route_name(l['url'])} > '{trig}' 클릭 후 {kind}({disp})"}, None
 
     def _open_login_ui(self, l):
         """가입 뒤 로그인 폼이 안 보이면 '로그인' 탭·버튼을 눌러 새로고침 없이 로그인 창을 다시 엶"""
         trig = self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-login-btn", LOGIN_TRIGGER_RE, None])
+        if not trig:   # [v2] '로그인·비회원 인증'처럼 다른 글자가 붙은 로그인 버튼
+            trig = self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-login-btn", LOGIN_TRIGGER_LOOSE_RE, None])
         if not trig:
             return
         try:
@@ -2047,81 +2416,132 @@ class FileTester:
             try:
                 self.goto(url)
                 plan += [(self.page.url, i) for i in self.page.evaluate(VISIBLE_FORMS_JS, False)]
+                self.guest_form_names |= self._form_names()   # [v2] 비로그인 상태에서 보이는 폼 이름
             except PWError:
                 pass
-        self.bar.reset(total=max(len(plan), 1))
+        extra = self.revealed_forms[:REVEALED_FORM_MAX] if REVEALED_FORM_TEST else []
+        self.bar.reset(total=max(len(plan) + len(extra), 1))
         done_names = set()
         for url, idx in plan:
             self.bar.set_postfix_str(f"폼 #{idx}")
             try:
-                self.goto(url)
-                self.events = []
-                if idx not in self.page.evaluate(VISIBLE_FORMS_JS, False):
-                    self.bar.update(1)
-                    continue
-                struct = self.page.evaluate(FORM_STRUCT_JS, idx)
-                peek = self.page.evaluate(FORM_PEEK_JS, idx)
-                if not peek or peek["name"] in done_names:
-                    self.bar.update(1)
-                    continue
-                done_names.add(peek["name"])
-                kind = ("회원가입 폼" if peek["signup"] else "로그인 폼") if peek["pw"] else "폼"
-                where = f"{self.route_name(url)} > {kind}({peek['name']})"
-                fstep = (f"{self.open_step(url)} → {kind}({peek['name']})에 값 입력"
-                         f"(예: {account_text()}) → 제출")
-                self.has_form = True
-                if peek["pw"]:
-                    self.has_pw_form = True
-                    self.pw_forms.append({"url": url, "idx": idx, "name": peek["name"], "signup": peek["signup"],
-                                          "where": where, "kind": kind})
-                    self.add("수동", where, "로그인/회원가입 실제 사용 흐름(정상·실패·로그아웃)은 직접 확인",
-                             f"{self.open_step(url)} → 회원가입 완료 → 같은 계정으로 로그인 → 로그인 상태 표시·로그아웃 확인"
-                             f" → 틀린 비밀번호·빈 값으로 로그인 시 오류 문구 확인")
-                else:
-                    self.add("수동", where, "폼 입력값 검증(빈 값·잘못된 형식)은 자동 미검사",
-                             f"{self.open_step(url)} → {kind}({peek['name']})를 빈 값으로 제출 → 안내 문구 확인 → 정상 값으로 제출 → 결과 확인")
-                if struct and struct["noTarget"]:
-                    self.add("주의", where, "action·onsubmit·submit 리스너가 모두 없는 <form> 태그 (전송 대상 불명)",
-                             f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
-                is_login = bool(peek["pw"]) and not peek["signup"]
-                info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"], demo=is_login,
-                                                               where=where, flow=fstep, post_auth=is_login)
-                demo = self.last_demo if is_login else None
-                if self.page.url.startswith("chrome-error"):
-                    self.add("오류", where, "제출 후 페이지 이동 실패", f"{fstep} → 이동한 화면이 열리는지 확인")
-                rest = self.flush_errors(where, fstep)
-                self.check_downloads(rest, where, fstep)
-                dialogs = [v for k, v in rest if k == "dialog"]
-                changed = changed or bool(rest)
-                if not changed:
-                    invalid = self.page.evaluate("(i) => !document.querySelectorAll('form')[i]?.checkValidity()", idx)
-                    if invalid:
-                        self.add("경고", where, "테스트 값을 넣어도 입력 검증을 통과하지 못함(필수값/형식 확인 필요)",
-                                 f"{fstep} → 어떤 칸에서 막히는지(빨간 안내) 확인 → required·pattern·minlength 조건 확인")
-                    elif peek["pw"]:
-                        self.add("오류", where,
-                                 ("체험 계정 입력 후 " if demo else "") + "제출해도 반응 없음(로그인/가입 처리 안 됨) · 값을 자동 입력해 제출했으나 "
-                                 "주소·화면 구조·겉모습·알림 모두 변화 없음(입력 규칙 검증은 통과)",
-                                 f"{fstep} → 완료 문구·화면 전환이 있는지 확인" + self._submit_detail())
-                    else:
-                        self.add("경고", where,
-                                 "제출해도 반응 없음 · 값을 자동 입력해 제출했으나 주소·화면 구조·겉모습·알림 모두 변화 없음",
-                                 f"{fstep} → 결과 화면·메시지가 있는지 확인" + self._submit_detail())
-                elif peek["pw"]:
-                    fail = self._fail_message(new_text, dialogs)
-                    if demo:
-                        self._demo_result(where, fstep, demo, fail, peek["name"])   # 체험 계정은 되어야 하므로 실패면 바로 기록
-                    elif fail and not peek["signup"]:
-                        # 가입 전 로그인 실패는 정상일 수 있음 → '가입 → 로그인' 결과를 보고 test_login_chain에서 결정
-                        self.login_fail_pending[where] = (fail, fstep)
-                    elif fail and not self._duplicate_message(new_text, dialogs):
-                        self.add("경고", where, f"테스트 값으로 제출 시 실패 문구 표시: '{fail}'",
-                                 f"{fstep} → '{fail}' 문구가 왜 나오는지 확인(입력 규칙·저장 코드 확인)")
+                self._test_form(url, idx, done_names)
             except PWError as e:
                 self.add("오류", f"{self.route_name(url)} 폼#{idx}", f"제출 실패: {str(e).split(chr(10))[0][:80]}",
                          f"{self.open_step(url)} → {idx + 1}번째 폼에 값 입력 → 제출")
             self.bar.update(1)
+        for rv in extra:   # [v2] 버튼을 눌러야 나타나는 로그인 창(모달·소셜 로그인 등)
+            self.bar.set_postfix_str(f"폼(클릭 후): {rv['name'][:12]}")
+            try:
+                self._test_form(rv["url"], None, done_names, opener=rv)
+            except PWError as e:
+                self.add("수동", f"{self.route_name(rv['url'])} > '{rv['label']}' 클릭 후 폼({rv['name']})",
+                         f"클릭 후 나타난 로그인 창 검사 중단: {str(e).split(chr(10))[0][:60]}",
+                         f"{self.open_step(rv['url'])} → '{rv['label']}' 클릭 → 나타난 창에서 로그인 직접 확인")
+            self.bar.update(1)
         self.test_login_chain()
+
+    def _test_form(self, url, idx, done_names, opener=None):
+        """폼 하나: 열기 → 값 입력 → 제출 → 판정. opener가 있으면 그 버튼을 눌러 폼(로그인 창)을 먼저 띄움"""
+        self.goto(url)
+        self.events = []
+        loc, open_step = self.route_name(url), self.open_step(url)
+        if opener:
+            if not self._open_by(opener):
+                return
+            hit = next((f for f in self._forms_info() if f["name"] == opener["name"]), None)
+            if not hit:
+                return
+            idx = hit["idx"]
+            self.events = []
+            loc += f" > '{opener['label']}' 클릭 후"
+            open_step += f" → '{opener['label']}' 클릭"
+        if idx not in self.page.evaluate(VISIBLE_FORMS_JS, False):
+            return
+        struct = self.page.evaluate(FORM_STRUCT_JS, idx)
+        peek = self.page.evaluate(FORM_PEEK_JS, idx)
+        if not peek:
+            return
+        is_auth = AUTH_FORM_TEST and bool(peek.get("auth"))   # [v2] 비밀번호 없이 이름·휴대폰 → 인증번호로 확인하는 폼
+        key = peek["name"] + ("\u0001" + peek["btn"] if is_auth else "")   # 같은 폼이라도 탭(로그인·가입·비회원)별로 따로 검사
+        if key in done_names:
+            return
+        done_names.add(key)
+        authlike = bool(peek["pw"]) or is_auth
+        disp = peek["name"] + (f"·{peek['btn']}" if is_auth and peek["btn"] else "")
+        if peek["pw"]:
+            kind = "회원가입 폼" if peek["signup"] else "로그인 폼"
+        elif is_auth:
+            kind = "가입 인증 폼" if peek["signup"] else "인증 폼"
+        else:
+            kind = "폼"
+        where = f"{loc} > {kind}({disp})"
+        fstep = (f"{open_step} → {kind}({disp})에 값 입력"
+                 f"(예: {account_text(('name', 'phone')) if is_auth else account_text()}) → 제출")
+        soft = bool(opener) and not REVEALED_FORM_STRICT   # 클릭해야 나타나는 창: '통과'만 남기고 문제는 '수동'으로
+        lv = (lambda level: "수동" if level in PROBLEM_LEVELS else level) if soft else (lambda level: level)
+        self.has_form = True
+        if authlike:
+            self.has_pw_form = True
+            self.pw_forms.append({"url": url, "idx": idx, "name": key, "disp": disp, "signup": peek["signup"],
+                                  "where": where, "kind": kind, "auth": is_auth, "opener": opener,
+                                  "guest": is_auth and bool(re.search(GUEST_TAB_RE, peek["btn"], re.I))})
+            self.add("수동", where, "로그인/회원가입 실제 사용 흐름(정상·실패·로그아웃)은 직접 확인",
+                     f"{open_step} → 회원가입 완료 → 같은 계정으로 로그인 → 로그인 상태 표시·로그아웃 확인"
+                     f" → 틀린 비밀번호·빈 값으로 로그인 시 오류 문구 확인")
+        else:
+            self.add("수동", where, "폼 입력값 검증(빈 값·잘못된 형식)은 자동 미검사",
+                     f"{open_step} → {kind}({disp})를 빈 값으로 제출 → 안내 문구 확인 → 정상 값으로 제출 → 결과 확인")
+        if struct and struct["noTarget"]:
+            self.add(lv("주의"), where, "action·onsubmit·submit 리스너가 모두 없는 <form> 태그 (전송 대상 불명)",
+                     f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
+        is_login = authlike and not peek["signup"]
+        before_state = self._login_state(key) if authlike else None
+        info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"], demo=is_login and bool(peek["pw"]),
+                                                       where=where, flow=fstep, post_auth=authlike,
+                                                       fill_opt={"smart": True} if is_auth else None, steps=is_login)
+        demo = self.last_demo if is_login else None
+        if self.page.url.startswith("chrome-error"):
+            self.add("오류", where, "제출 후 페이지 이동 실패", f"{fstep} → 이동한 화면이 열리는지 확인")
+        rest = self.flush_errors(where, fstep)
+        self.check_downloads(rest, where, fstep)
+        dialogs = [v for k, v in rest if k == "dialog"]
+        changed = changed or bool(rest)
+        if not changed:
+            invalid = self.page.evaluate("(i) => !document.querySelectorAll('form')[i]?.checkValidity()", idx)
+            if invalid:
+                self.add(lv("경고"), where, "테스트 값을 넣어도 입력 검증을 통과하지 못함(필수값/형식 확인 필요)",
+                         f"{fstep} → 어떤 칸에서 막히는지(빨간 안내) 확인 → required·pattern·minlength 조건 확인")
+            elif peek["pw"]:
+                self.add(lv("오류"), where,
+                         ("체험 계정 입력 후 " if demo else "") + "제출해도 반응 없음(로그인/가입 처리 안 됨) · 값을 자동 입력해 제출했으나 "
+                         "주소·화면 구조·겉모습·알림 모두 변화 없음(입력 규칙 검증은 통과)",
+                         f"{fstep} → 완료 문구·화면 전환이 있는지 확인" + self._submit_detail())
+            else:
+                self.add(lv("경고"), where,
+                         "제출해도 반응 없음 · 값을 자동 입력해 제출했으나 주소·화면 구조·겉모습·알림 모두 변화 없음",
+                         f"{fstep} → 결과 화면·메시지가 있는지 확인" + self._submit_detail())
+        elif authlike:
+            fail = self._login_fail(new_text, dialogs, key)
+            if demo:
+                self._demo_result(where, fstep, demo, fail, key)   # 체험 계정은 되어야 하므로 실패면 바로 기록
+            elif fail and not peek["signup"]:
+                # 가입 전 로그인 실패는 정상일 수 있음 → '가입 → 로그인' 결과를 보고 test_login_chain에서 결정
+                self.login_fail_pending[where] = (fail, fstep)
+                if soft:
+                    self.soft_where.add(where)
+            elif fail and not self._duplicate_message(new_text, dialogs):
+                self.add(lv("경고"), where, f"테스트 값으로 제출 시 실패 문구 표시: '{fail}'",
+                         f"{fstep} → '{fail}' 문구가 왜 나오는지 확인(입력 규칙·저장 코드 확인)")
+            elif not fail and (is_auth or opener or self.last_auth == "ok" or self.last_steps):
+                # [v2] 인증 폼·클릭 후 나타난 로그인 창·인증창을 거친 제출: 로그인 상태 표시까지 나타났는지 확인
+                self._login_result(where, fstep, key, before_state,
+                                   "가입" if peek["signup"] else ("인증" if is_auth else "로그인"))
+        if authlike:   # [v2] 다음 폼 검사가 로그인 상태에 영향받지 않도록 원래(비로그인) 상태로
+            try:
+                self._logout_if_available()
+            except PWError:
+                pass
 
     def _login_state(self, login_name):
         conf = LOGIN_STATE_SELECTORS.get(self.file.name, {})
@@ -2167,7 +2587,8 @@ class FileTester:
                 self._back_to(l["url"])
             for idx in self.page.evaluate(VISIBLE_FORMS_JS, True)[:GUEST_FORM_MAX]:
                 try:
-                    if idx not in self.page.evaluate(VISIBLE_FORMS_JS, True):
+                    # [v2] 로그인(인증) 폼 자체는 기록용 폼으로 쓰지 않음
+                    if idx == self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) or idx not in self.page.evaluate(VISIBLE_FORMS_JS, True):
                         continue
                     self._fill_form(idx)
                     self.page.evaluate("(i) => { const f = document.querySelectorAll('form')[i]; f.requestSubmit ? f.requestSubmit() : f.submit(); }", idx)
@@ -2266,6 +2687,14 @@ class FileTester:
                 self.add("경고", where, "로그아웃 후에도 로그인 상태 표시가 남아 있음: " + ", ".join(f"'{w}'" for w in left),
                          ostep + " → 로그인 상태 표시가 모두 사라지는지 확인")
             missing = [g for g in before["guest"] if g not in out["guest"]]
+            if missing:   # [v2] 로그아웃 뒤 홈 등 다른 화면으로 옮겨졌을 수 있음 → 로그인 화면으로 돌아가 같은 화면끼리 다시 비교
+                try:
+                    self._back_to(l["url"])
+                    again = self._login_state(l["name"])
+                    if again:
+                        missing = [g for g in missing if g not in again["guest"]]
+                except PWError:
+                    pass
             if missing:
                 self.add("경고", where, "로그아웃 후 비로그인용 버튼이 다시 나타나지 않음: " + ", ".join(f"'{g}'" for g in missing),
                          ostep + " → 처음 화면처럼 로그인·회원가입 버튼이 돌아오는지 확인")
@@ -2294,13 +2723,15 @@ class FileTester:
                 reason = self._login_chain(verified)
         finally:
             self._flush_login_pending(verified, reason)
+        self._after_chain()   # [v2] 비회원 인증 탭 · 회원 전용 화면의 인증창
 
     def _flush_login_pending(self, verified, reason):
         for where, (fail, fstep) in self.login_fail_pending.items():
-            if where in verified or where in self.demo_ok:
+            if where in verified or where in self.demo_ok or where in self.login_ok:
                 continue   # 가입 후 로그인 또는 체험 계정 로그인으로 이미 판정함(통과면 문제 아님, 실패면 따로 기록됨)
             why = reason or "가입 → 로그인 연속 검사는 다른 로그인 폼으로 진행함"
-            self.add("주의", where, f"테스트 값으로 제출 시 실패 문구 표시: '{fail}' (가입 후 로그인 자동 확인 못함: {why})",
+            self.add("수동" if where in self.soft_where else "주의", where,
+                     f"테스트 값으로 제출 시 실패 문구 표시: '{fail}' (가입 후 로그인 자동 확인 못함: {why})",
                      f"{fstep} → 회원가입을 먼저 한 뒤 같은 계정({account_text()})으로 로그인해 확인")
         self.login_fail_pending = {}
 
@@ -2314,13 +2745,20 @@ class FileTester:
 
     def _login_chain(self, verified):
         """연속 검사 본체. 로그인 단계까지 갔으면 None, 못 갔으면 그 이유를 돌려줌"""
-        signups = [f for f in self.pw_forms if f["signup"]]
-        logins = [f for f in self.pw_forms if not f["signup"]]
+        # [v2] 버튼을 눌러야 나타나는 로그인 창·'비회원' 인증 탭은 연속 검사에 쓰지 않음(각각 따로 검사)
+        signups = [f for f in self.pw_forms if f["signup"] and not f.get("opener")]
+        logins = [f for f in self.pw_forms if not f["signup"] and not f.get("opener") and not f.get("guest")]
         if not logins:
             return "로그인 폼 없음"
         l = logins[0]
+        self._chain_login = l
+        base = l["name"].split("\u0001")[0]
+        # 비밀번호 없는 인증 폼이면 같은 폼의 '가입' 탭과 짝을 맞춤
+        signups = [f for f in signups if bool(f.get("auth")) == bool(l.get("auth"))
+                   and (not l.get("auth") or f["name"].split("\u0001")[0] == base)]
         s = signups[0] if signups else None
-        acct = account_text(("id", "email", "password", "name"))
+        acct = account_text(("name", "phone") if l.get("auth") else ("id", "email", "password", "name"))
+        smart = {"smart": True} if l.get("auth") else None
         try:
             if s:
                 self.goto(s["url"])
@@ -2329,18 +2767,22 @@ class FileTester:
                     self._back_to(s["url"])
                     if not self.page.locator("form").nth(s["idx"]).is_visible():
                         return "제출할 회원가입 폼이 보이지 않음"
-                open_flow = f"{self.open_step(s['url'])} → {s['kind']}({s['name']})"
+                open_flow = f"{self.open_step(s['url'])} → {s['kind']}({s.get('disp', s['name'])})"
             else:   # 가입 폼이 처음부터 안 보임 → 로그인 화면의 '회원가입' 버튼을 눌러 연다
                 s, why = self._find_signup_by_button(l)
                 if not s:
                     return why
-                open_flow = f"{self.open_step(l['url'])} → '{s['trigger']}' 클릭 → {s['kind']}({s['name']})"
+                open_flow = f"{self.open_step(l['url'])} → '{s['trigger']}' 클릭 → {s['kind']}({s.get('disp', s['name'])})"
             flow = (f"{open_flow}에 {acct}로 가입"
                     f" → {('같은 화면' if s['url'] == l['url'] else '주소 끝에 ' + repr(self.route_name(l['url'])) + ' 붙여 이동')}"
-                    f" → {l['kind']}({l['name']})에 같은 계정으로 로그인")
+                    f" → {l['kind']}({l.get('disp', l['name'])})에 같은 계정으로 로그인")
             where = f"{s['where']} → {l['where']}"
             self.events = []
-            info, changed, new_text, _ = self._submit_form(s["idx"], precheck=True, where=where, flow=flow)
+            info, changed, new_text, _ = self._submit_form(s["idx"], precheck=True, where=where, flow=flow,
+                                                           post_auth=True, fill_opt=smart)
+            if self.last_auth not in (None, "ok"):   # [v2] 가입 중 뜬 인증창을 넘지 못함(인증창 결과는 따로 기록됨)
+                self.flush_errors(where, flow)
+                return "가입 중 인증창을 통과하지 못함"
             rest = self.flush_errors(where, flow)
             dialogs = [v for k, v in rest if k == "dialog"]
             dup = self._duplicate_message(new_text, dialogs)   # 앞 단계에서 이미 가입됨 → 로그인으로 진행
@@ -2376,9 +2818,10 @@ class FileTester:
                 if login_idx < 0:
                     return "제출할 로그인 폼이 보이지 않음"
                 prev_fail = fail
-                info, changed, new_text, _ = self._submit_form(login_idx, mode, where=where, flow=flow, post_auth=True)
+                info, changed, new_text, _ = self._submit_form(login_idx, mode, where=where, flow=flow, post_auth=True,
+                                                               fill_opt=smart, steps=True)
                 rest = self.flush_errors(where, flow)
-                fail = self._fail_message(new_text, [v for k, v in rest if k == "dialog"])
+                fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], l["name"])
                 if not fail and prev_fail:
                     # 같은 실패 문구가 그대로 떠 있으면 '새 문구'로 안 잡히므로 화면에 남아 있는지 직접 확인
                     lines = self.page.evaluate(TEXT_LINES_JS)
@@ -2389,6 +2832,8 @@ class FileTester:
                     break
                 if not (info and info.get("ambiguous")):
                     break   # 칸 구분이 명확하면 다른 값으로 다시 해 볼 필요 없음
+            if self.last_auth not in (None, "ok"):   # [v2] 로그인 중 뜬 인증창을 넘지 못함(인증창 결과는 따로 기록됨)
+                return "로그인 중 인증창을 통과하지 못함"
             if silent:
                 if fail or not (changed or rest):
                     return silent   # 가입도 로그인도 안 됨 → 자동으로는 판단 불가, 보류한 '주의'에 이유로 붙임
@@ -2424,6 +2869,184 @@ class FileTester:
             return None
         except PWError as e:
             return f"검사 중단({str(e).split(chr(10))[0][:60]})"
+
+    # ── [v2] 연속 검사 뒤: 비회원 인증 탭 · 회원 전용 화면의 인증창 ──
+    def _after_chain(self):
+        logins = [f for f in self.pw_forms if not f["signup"] and not f.get("opener") and not f.get("guest")]
+        l = self._chain_login or (logins[0] if logins else None)
+        if not l:
+            return
+        if AUTH_FORM_TEST and l.get("auth"):
+            try:
+                self._guest_variant(l)
+            except PWError as e:
+                self.add("수동", l["where"], f"비회원 인증 탭 검사 중단: {str(e).split(chr(10))[0][:60]}",
+                         f"{self.open_step(l['url'])} → '비회원' 탭에서 인증 직접 확인")
+        if MEMBER_TEST and (self.chain_passed or l["where"] in self.demo_ok or l["where"] in self.login_ok):
+            self.test_member_area(l)
+
+    def _guest_variant(self, l):
+        """비밀번호 없는 인증 화면에 '비회원' 탭이 있으면 그 인증(이름·휴대폰 → 인증번호)도 확인"""
+        if any(f.get("guest") for f in self.pw_forms):
+            return   # 화면 탐색에서 이미 찾아 폼 검사 때 확인함
+        self.goto(l["url"])
+        if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
+            self._logout_if_available()
+            self.goto(l["url"])
+        trig = self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-guest-btn", GUEST_TAB_RE, l["name"]])
+        if not trig:
+            return
+        self.events = []
+        self.page.locator("[data-qa-guest-btn]").first.click(timeout=2000)
+        self.page.wait_for_timeout(CLICK_WAIT_MS)
+        self.wait_settled()
+        for idx in self.page.evaluate(VISIBLE_FORMS_JS, False):
+            peek = self.page.evaluate(FORM_PEEK_JS, idx)
+            if not (peek and peek.get("auth") and not peek["signup"] and re.search(GUEST_TAB_RE, peek["btn"], re.I)):
+                continue
+            key = peek["name"] + "\u0001" + peek["btn"]
+            disp = f"{peek['name']}·{peek['btn']}"
+            where = f"{self.route_name(l['url'])} > '{trig}' 클릭 후 인증 폼({disp})"
+            flow = (f"{self.open_step(l['url'])} → '{trig}' 클릭 → 인증 폼({disp})에 값 입력"
+                    f"(예: {account_text(('name', 'phone'))}) → 제출")
+            before = self._login_state(key)
+            info, changed, new_text, _ = self._submit_form(idx, where=where, flow=flow, post_auth=True, fill_opt={"smart": True})
+            rest = self.flush_errors(where, flow)
+            fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], key)
+            if fail:
+                self.add("수동", where, f"비회원 인증: 테스트 값으로 제출 시 실패 문구 표시: '{fail}'", flow + " → 직접 확인")
+            elif changed or rest:
+                self._login_result(where, flow, key, before, "인증")
+            self._logout_if_available()
+            return
+
+    def _member_login(self, l):
+        """회원 전용 화면 검사를 위해 로그인 상태를 만듦(체험 계정이 확인됐으면 체험 계정, 아니면 가입해 둔 테스트 계정)"""
+        self.goto(l["url"])
+        if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
+            self._logout_if_available()
+            self._open_login_ui(l)
+        if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
+            self.goto(l["url"])
+        before = self._login_state(l["name"])
+        smart = {"smart": True} if l.get("auth") else None
+        use_demo = l["where"] in self.demo_ok
+        self._mute = True   # 준비 단계: 같은 로그인 흐름은 앞에서 이미 판정했으므로 여기서는 기록하지 않음
+        try:
+            for mode in LOGIN_KEY_ORDER:
+                idx = self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"])
+                if idx < 0:
+                    break
+                self._submit_form(idx, mode, demo=use_demo, where="회원 전용 화면 > 로그인", flow="로그인",
+                                  post_auth=True, fill_opt=smart, steps=True)
+                self.flush_errors("회원 전용 화면 > 로그인", "")
+                if self.page.evaluate(LOGIN_FORM_INDEX_JS, l["name"]) < 0:
+                    break
+        finally:
+            self._mute = False
+        self.page.wait_for_timeout(400)
+        after = self._login_state(l["name"])
+        return bool(before and after and not after["loginFormVisible"]
+                    and (set(after["member"]) - set(before["member"]) or after["memberSel"]))
+
+    def test_member_area(self, l):
+        """
+        로그인 상태로 화면을 다시 훑어, 비로그인 때는 없던 폼(주문서·예매 등)을 제출해 보고
+        제출 뒤 뜨는 인증창(결제 인증 등)이 실제로 되는지 확인.
+        인증창 결과와 JS·콘솔 오류만 기록하고, 그 밖의 폼 판정(반응 없음 등)은 하지 않음.
+        """
+        where0 = "회원 전용 화면"
+        hint = (f"{self.open_step(l['url'])} → 로그인 → 주문·결제 등 회원 전용 화면에서 인증창이 뜨는지,"
+                f" 인증번호 입력 후 완료되는지 직접 확인")
+        tested, visited = [], 0
+        try:
+            if not self._member_login(l):
+                self.add("수동", where0, "로그인 상태를 만들지 못해 회원 전용 화면의 인증창 검사 생략", hint)
+                return
+            found, names = [], set()
+            seen, queue = set(self.guest_routes), list(self.guest_routes)
+            pat, extra, preps = Counter(), 0, 0
+            while queue and len(found) < MEMBER_MAX_FORMS:
+                url = queue.pop(0)
+                try:
+                    self.goto(url)
+                except PWError:
+                    continue
+                visited += 1
+                self.flush_errors(f"회원 전용 {self.route_name(url)} 로드", f"{self.open_step(url)} (로그인 상태)")
+                shown = self.page.url
+                for f in self._forms_info():   # 비로그인 때는 없던 폼만(비밀번호 변경 등 비밀번호 폼은 제외)
+                    if f["pw"] or f["name"] in self.guest_form_names or f["name"] in names:
+                        continue
+                    names.add(f["name"])
+                    found.append((shown, f["name"]))
+                try:
+                    hrefs = self.page.eval_on_selector_all("a[href]", "els => els.map(e => [e.getAttribute('href'), e.href])")
+                except PWError:
+                    hrefs = []
+                for raw, absu in hrefs:   # 로그인해야 보이는 새 화면
+                    if extra >= MEMBER_MAX_ROUTES:
+                        break
+                    if not raw or raw.startswith(("javascript:", "mailto:", "tel:", "http", "#main")) or raw in ("#", "#content", "#top"):
+                        continue
+                    if absu in seen or not self.same_file(absu):
+                        continue
+                    p = urlparse(absu)
+                    if not (p.query or p.fragment):
+                        continue
+                    seen.add(absu)
+                    key = pattern(raw)
+                    pat[key] += 1
+                    if pat[key] <= SAME_PATTERN_LIMIT:
+                        queue.append(absu)
+                        extra += 1
+                if preps < MEMBER_PREP_MAX:   # '바로 주문' 같은 버튼으로 주문서 등 다음 화면으로 넘어가 봄
+                    try:
+                        label = self.page.evaluate(PREP_BTN_JS, MEMBER_PREP_RE)
+                        if label:
+                            preps += 1
+                            self.page.locator("[data-qa-prep]").first.click(timeout=2000)
+                            self.page.wait_for_timeout(CLICK_WAIT_MS)
+                            self.wait_settled()
+                            now = self.page.url
+                            if self.same_file(now) and now not in seen:
+                                seen.add(now)
+                                queue.insert(0, now)
+                    except PWError:
+                        pass
+                    self.events = []
+            for shown, fname in found:
+                try:
+                    self.goto(shown)
+                    self.events = []
+                    hit = next((f for f in self._forms_info() if f["name"] == fname), None)
+                    if not hit:
+                        continue
+                    peek = self.page.evaluate(FORM_PEEK_JS, hit["idx"])
+                    if not peek or peek["pw"] or re.search(MEMBER_SKIP_RE, peek["btn"], re.I):
+                        continue
+                    where = f"회원 전용 {self.route_name(shown)} > 폼({fname})"
+                    flow = f"{self.open_step(shown)} (로그인 상태) → 폼({fname})에 값 입력 → 제출"
+                    self._submit_form(hit["idx"], where=where, flow=flow, post_auth=True, keep=True,
+                                      fill_opt={"smart": True, "natural": True})
+                    self.flush_errors(where, flow)
+                    tested.append(fname + ("(인증창 확인)" if self.last_auth else ""))
+                except PWError:
+                    continue
+            if tested:
+                self.add("수동", where0, f"로그인 상태로 화면 {visited}개를 다시 열어, 비로그인 때 없던 폼 {len(tested)}개를 제출해 인증창 확인: "
+                                         + ", ".join(tested), hint)
+            else:
+                self.add("수동", where0, f"로그인 상태로 화면 {visited}개를 다시 열었으나 새로 나타난 폼이 없음", hint)
+        except PWError as e:
+            self.add("수동", where0, f"회원 전용 화면 검사 중단: {str(e).split(chr(10))[0][:60]}", hint)
+        finally:
+            try:
+                self.goto(self.base_url)       # 열려 있던 창을 닫고
+                self._logout_if_available()    # 원래(비로그인) 상태로
+            except PWError:
+                pass
+            self.events = []
 
     def _logout_if_available(self):
         if self.page.evaluate(LOGOUT_TAG_JS):
@@ -2768,7 +3391,7 @@ def feature_category(msg, where=""):
     t = f"{msg} {where}"
     if "캘린더" in t or "달력" in t or "날짜 입력칸" in t or "월 탭" in t:
         return "캘린더"
-    if "인증창" in t:
+    if "인증창" in t or "인증 폼" in t:
         return "인증"
     if any(w in t for w in ("로그인", "로그아웃", "회원가입", "가입")):
         return "로그인"
