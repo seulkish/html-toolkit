@@ -46,6 +46,23 @@ v2(인증 패치)에서 바뀐 점
     - 체험 계정: '빠른 로그인'처럼 계정 안내 영역 안의 '입력'·'채우기' 버튼, '이메일 / 비밀번호'만 적힌 안내 줄도 인식
     - 회원 전용 화면: 로그인이 확인되면 로그인 상태로 화면을 다시 훑어, 새로 나타난 폼(주문서 등)을 제출해 결제 인증창 확인
       (이 단계에서는 인증창 결과와 JS·콘솔 오류만 기록)
+
+v3에서 바뀐 점
+    - 제출 버튼 찾기: 검색·조회·필터 폼에서 type=button인 '검색'·'조회'·'찾기'·'적용' 버튼도 제출 버튼으로 인식
+      (동작이 버튼 클릭에만 연결된 폼을 requestSubmit()으로만 제출해 '제출해도 반응 없음'으로 오판하던 문제)
+      '주소 검색'·'비밀번호 찾기'·'쿠폰 적용' 같은 보조 버튼과 비밀번호가 있는 폼은 제외
+
+v4에서 바뀐 점
+    - 폼 밖 제출 버튼 찾기: 다른 폼에 속한 버튼은 제외(옆에 있는 로그인 폼의 '로그인' 버튼을 대신 누르던 문제)
+    - '전송 대상 불명'(action·onsubmit·submit 리스너 없는 <form>)을 제출해 본 뒤 판정
+      · 버튼 클릭으로 동작하면 '전송 대상 불명'으로 보지 않음
+      · 대신 입력칸에서 Enter를 눌러 폼이 그대로 전송되어 새로고침되면 그 사실을 '주의'로 기록(ENTER_SUBMIT_CHECK)
+      · 버튼을 못 찾았거나 제출하면 화면이 다시 열리기만 하는 폼은 기존대로 '전송 대상 불명'
+
+v5에서 바뀐 점
+    - 로그인 실패 문구 판정: 로그인 폼이 사라지고 로그인됐다는 근거(로그아웃 버튼·새 로그인 표시·'로그인했습니다' 안내)가 있으면
+      옮겨 간 화면 본문의 '실패' 같은 낱말을 로그인 실패 문구로 보지 않음
+    - 로그아웃: 버튼이 지금 화면에 없으면 '마이페이지'·'내 정보' 같은 메뉴를 눌러 그 화면에서 찾아 로그아웃(LOGOUT_SEARCH)
 """
 
 import calendar
@@ -190,6 +207,16 @@ MEMBER_MAX_FORMS = 8         # 로그인 상태에서 제출해 볼 폼 수
 MEMBER_PREP_MAX = 3          # '바로 주문' 같은 버튼을 몇 번까지 눌러 다음 화면(주문서 등)으로 넘어가 볼지
 MEMBER_PREP_RE = r"바로\s*(주문|구매|결제)|구매하기|주문하기|결제하기|예매하기|buy now|order now|checkout"
 MEMBER_SKIP_RE = r"탈퇴|삭제|해지|초기화|withdraw|delete|remove|reset"   # 로그인 상태에서 제출하지 않을 폼(제출 버튼 글자)
+# ── v4 추가 설정 ──
+ENTER_SUBMIT_CHECK = True    # 제출 처리가 없는 <form>이 버튼 클릭으로는 동작할 때, 입력칸에서 Enter를 눌러 새로고침되는지도 확인
+# ── v5 추가 설정 ──
+# 로그인 성공을 알리는 안내 문구(이 문구가 새로 나타나면, 옮겨 간 화면 본문의 '실패' 같은 낱말을 로그인 실패로 보지 않음)
+LOGIN_SUCCESS_WORDS = ("로그인했", "로그인되었", "로그인 되었", "로그인에 성공", "로그인 성공", "로그인 완료", "환영합니다",
+                       "welcome", "signed in", "logged in", "login success")
+LOGOUT_SEARCH = True         # 로그아웃 버튼이 지금 화면에 없으면 '마이페이지'·'내 정보' 같은 메뉴를 눌러 그 화면에서 찾음
+LOGOUT_SEARCH_MAX = 3        # 그런 메뉴를 몇 개까지 눌러 볼지
+ACCOUNT_LINK_RE = r"마이\s*페이지|내\s*정보|내\s*계정|회원\s*정보|계정\s*(설정|관리|정보)?$|프로필|my ?page|my ?account|^account$|profile|^설정$|^settings$|.{1,10}님$"
+NO_TARGET_MSG = "action·onsubmit·submit 리스너가 모두 없는 <form> 태그 (전송 대상 불명)"
 # ────────────────────────────────
 
 CLICKABLE_SELECTOR = (
@@ -411,7 +438,8 @@ POPUP_SCAN_JS = r"""
 """
 
 # 폼의 '제출 버튼'을 찾아 번호표(data-qa-submit)를 붙임. 사람처럼 버튼을 눌러 제출하기 위함
-# 1) type=submit 버튼  2) 폼 안의 일반 버튼 중 '가입·로그인·확인' 글자  3) 폼 밖(모달 아래쪽 등)의 '가입·로그인' 버튼
+# 1) type=submit 버튼  2) 폼 안의 일반 버튼 중 '가입·로그인·확인' 글자
+# 3) [v3] 검색·조회 폼의 '검색·조회·찾기·적용' 버튼  4) 폼 밖(모달 아래쪽 등)의 '가입·로그인' 버튼
 # kind='precheck'면 '중복확인' 같은 사전 확인 버튼들에 번호표를 붙임
 SUBMIT_TARGET_JS = r"""
 ([idx, kind, precheckRe]) => {
@@ -439,11 +467,24 @@ SUBMIT_TARGET_JS = r"""
   const go = /가입|등록|로그인|확인|완료|제출|다음|join|sign|log ?in|submit|register|ok/i;
   let el = own.find(e => (e.type === 'submit' || (e.tagName === 'BUTTON' && !e.getAttribute('type'))) && !skip.test(txt(e)))
         || own.find(e => go.test(txt(e)) && !skip.test(txt(e)));
+  // [v3] 검색·조회·필터 폼: 동작이 버튼 클릭에만 연결된 type=button '검색'·'조회'·'찾기'·'적용' 버튼
+  //      위 두 단계에서 못 찾았을 때만 봄('가입하기'보다 '우편번호 검색'을 먼저 누르지 않도록 우선순위를 낮춤)
+  //      '주소 검색'·'비밀번호 찾기'·'쿠폰 적용'처럼 다른 칸을 채우는 보조 버튼과 비밀번호가 있는 폼은 제외
+  if (!el && !f.querySelector('input[type=password]')) {
+    const act = /(검색|조회|찾기|적용)(하기)?[^0-9A-Za-z가-힣]*$|\b(search|find|look ?up|apply|filter)\b/i;
+    const aux = /아이디|비밀번호|비번|패스워드|계정|\bid\b|\bpw\b|password|username|account|주소|우편|address|zip|postal|post ?code|쿠폰|coupon|할인|포인트|point|적립|상품권|voucher|promo|파일|file|첨부|upload|이미지|사진|image|photo|중복|인증|추천|코드|code/i;
+    const skip3 = /취소|닫기|보기|숨기기|초기화|cancel|close|check|reset|clear/i;
+    el = own.filter(e => !e.disabled && e.type !== 'reset' && act.test(txt(e)) && !aux.test(txt(e)) && !skip3.test(txt(e)))
+            .sort((a, b) => txt(a).length - txt(b).length)[0] || null;   // 여러 개면 글자가 가장 짧은 것('상세 검색'보다 '검색')
+  }
   if (!el) {   // 폼 밖 가까운 곳(모달 아래쪽 버튼 등)
+    // [v4] 다른 폼에 속한 버튼은 이 폼의 제출 버튼이 아님(옆에 있는 로그인 폼의 '로그인' 버튼을 대신 누르지 않도록)
+    const myForm = f.tagName === 'FORM' ? f : f.closest('form');
+    const inOtherForm = (e) => { const ef = e.form || e.closest('form'); return !!ef && ef !== myForm; };
     let box = f.parentElement;
     for (let k = 0; k < 3 && box && !el; k++, box = box.parentElement) {
       el = [...box.querySelectorAll('button, input[type=button], [role=button], [onclick]')]
-        .find(e => !f.contains(e) && /가입|로그인|join|sign ?up|log ?in|register/i.test(txt(e)) && !skip.test(txt(e))
+        .find(e => !f.contains(e) && !inOtherForm(e) && /가입|로그인|join|sign ?up|log ?in|register/i.test(txt(e)) && !skip.test(txt(e))
                    && !e.closest('nav, header') && visible(e));
     }
   }
@@ -1092,6 +1133,44 @@ PREP_BTN_JS = r"""
     if (!(r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none')) continue;
     const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
     if (t && t.length <= 20 && rx.test(t)) { el.setAttribute('data-qa-prep', '1'); return t; }
+  }
+  return null;
+}
+"""
+
+# [v4] 폼의 첫 글자 입력칸에 번호표(data-qa-enter)를 붙임(Enter 키 제출 확인용). 폼 이름이 다르면(화면이 바뀜) 붙이지 않음
+ENTER_TARGET_JS = """
+([idx, name]) => {
+  document.querySelectorAll('[data-qa-enter]').forEach(e => e.removeAttribute('data-qa-enter'));
+  const f = document.querySelectorAll('form')[idx];
+  if (!f) return false;
+  const identity = (f.getAttribute('id') || f.getAttribute('name') || f.getAttribute('class') || ('form' + idx)).slice(0, 30);
+  if (identity !== name) return false;
+  const el = [...f.querySelectorAll('input')].find(i => {
+    const t = (i.type || 'text').toLowerCase();
+    if (!['text', 'search', 'email', 'tel', 'url', 'number'].includes(t) || i.disabled || i.readOnly) return false;
+    const r = i.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(i).visibility !== 'hidden';
+  });
+  if (!el) return false;
+  el.setAttribute('data-qa-enter', '1');
+  return true;
+}
+"""
+
+# [v5] '마이페이지'·'내 정보' 같은 계정 메뉴(폼 밖, 보이는 것) 하나에 번호표(data-qa-account)를 붙임. tried에 있는 글자는 건너뜀
+ACCOUNT_LINK_JS = r"""
+([re, tried]) => {
+  document.querySelectorAll('[data-qa-account]').forEach(e => e.removeAttribute('data-qa-account'));
+  const rx = new RegExp(re, 'i');
+  for (const el of document.querySelectorAll('a, button, [role=button], [role=menuitem], [role=tab], summary, [onclick]')) {
+    if (el.disabled || el.closest('form')) continue;
+    const r = el.getBoundingClientRect(); const st = getComputedStyle(el);
+    if (!(r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none')) continue;
+    const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ');
+    if (!t || t.length > 20 || tried.includes(t) || !rx.test(t)) continue;
+    el.setAttribute('data-qa-account', '1');
+    return t;
   }
   return null;
 }
@@ -2017,6 +2096,10 @@ class FileTester:
         before_url, before_state = self.page.url, state_hash(self.page)
         before_visual = visual_hash(self.page)
         before_text = set(self.page.evaluate(TEXT_LINES_JS))
+        try:
+            self.page.evaluate("() => { window.__qaAlive = 1 }")   # [v4] 제출로 화면이 통째로 다시 열렸는지 알아보기 위한 표시
+        except PWError:
+            pass
         if label:
             self._press("[data-qa-submit]")
         elif idx >= 0:
@@ -2048,10 +2131,14 @@ class FileTester:
         dom_ch = before_state != state_hash(self.page)
         vis_ch = before_visual != visual_hash(self.page)
         changed = url_ch or dom_ch or vis_ch
+        try:
+            reloaded = not self.page.evaluate("() => window.__qaAlive === 1")   # [v4] 표시가 사라졌으면 화면이 다시 열린 것(새로고침·이동)
+        except PWError:
+            reloaded = True
         self.last_submit = {   # '반응 없음' 메시지에 근거로 보여 줄 값
             "via": label, "used": info.get("used") or {}, "url": url_ch, "dom": dom_ch, "vis": vis_ch,
             "events": any(k not in ("jserror", "console", "resource", "brokenlink") for k, _ in self.events),
-            "waited": CLICK_WAIT_MS + 200 + waited,
+            "waited": CLICK_WAIT_MS + 200 + waited, "reloaded": reloaded,
         }
         # 제출 직후 '새로' 뜬 인증창(로그인 2단계 인증 등): 오류로 보지 않고 실제로 되는지 확인
         if post_auth and where and AUTH_TEST and not had_code:
@@ -2147,13 +2234,25 @@ class FileTester:
                 break
         return done
 
-    def _login_fail(self, new_text, dialogs, key):
-        """실패 문구 찾기. 로그인 폼이 사라지고 로그아웃 버튼이 보이면(=로그인됨) 옮겨 간 화면의 글자는 실패 문구로 보지 않음"""
+    def _login_fail(self, new_text, dialogs, key, before=None):
+        """
+        실패 문구 찾기. 알림창에 뜬 실패 문구는 그대로 실패로 봄.
+        화면 글자에서 찾은 경우에는, 로그인 폼이 사라졌고 로그인됐다는 근거가 있으면 옮겨 간 화면의 본문 글자이므로 실패로 보지 않음.
+        근거: 로그아웃 버튼이 보임 / 로그인 표시가 새로 나타남 / '로그인했습니다' 같은 안내가 새로 나타남
+        ([v5] 로그아웃 버튼을 마이페이지에만 둔 화면에서, 옮겨 간 화면 본문의 '실패' 낱말을 로그인 실패로 오인하던 문제)
+        """
         fail = self._fail_message(new_text, dialogs)
-        if fail and not self._fail_message([], dialogs):
-            st = self._login_state(key)
-            if st and not st["loginFormVisible"] and any(w in st["member"] for w in ("로그아웃", "logout", "log out", "sign out")):
-                return ""
+        if not fail or self._fail_message([], dialogs):
+            return fail
+        st = self._login_state(key)
+        if not st or st["loginFormVisible"]:
+            return fail   # 로그인 폼이 그대로 보이면 실패 문구로 봄
+        if any(w in st["member"] for w in ("로그아웃", "logout", "log out", "sign out")):
+            return ""
+        if before and (st["memberSel"] or any(w not in before["member"] for w in st["member"])):
+            return ""
+        if any(w in t.lower() for t in list(dialogs) + list(new_text) for w in LOGIN_SUCCESS_WORDS):
+            return ""
         return fail
 
     def _login_result(self, where, fstep, key, before, what="로그인"):
@@ -2170,6 +2269,59 @@ class FileTester:
         self.add("통과", where, f"{what} 정상 동작: 제출{steps}{auth} 후 로그인 상태 표시({shown}) 확인", fstep)
         self.login_ok.add(where)
         return True
+
+    # ── [v4] 제출 처리가 없는 <form>의 판정 ──
+    def _judge_no_target(self, idx, name, where, fstep, info, changed, fresh_text, lv):
+        """
+        action·onsubmit·submit 리스너가 모두 없는 <form>을 제출해 본 뒤 판정.
+        버튼을 눌러 (화면이 다시 열리지 않고) 동작했으면 제출 처리가 버튼 클릭에 연결된 폼이므로 '전송 대상 불명'이 아님.
+        다만 그런 폼은 입력칸에서 Enter를 누르면 그대로 전송되어 새로고침될 수 있어, 실제로 눌러 보고 그럴 때만 '주의'로 기록.
+        """
+        d = (getattr(self, "last_submit", None) or {}) if info else {}
+        via = d.get("via")
+        if not (changed and via and not d.get("reloaded")):   # 버튼을 못 찾았거나, 반응이 없거나, 그대로 전송되어 화면이 다시 열림
+            self.add(lv("주의"), where, NO_TARGET_MSG, f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
+            return
+        probe = self._enter_probe(idx, name, fresh_text) if ENTER_SUBMIT_CHECK else "skip"
+        self.flush_errors(where, f"{fstep} → 입력칸에서 Enter")
+        if probe == "reload":
+            self.add(lv("주의"), where,
+                     f"'{via}' 버튼은 동작하지만 입력칸에서 Enter를 누르면 폼이 그대로 전송되어 화면이 새로고침됨"
+                     "(<form>에 action·onsubmit·submit 리스너 없음)",
+                     f"{fstep} → 결과 확인 → 입력칸에서 Enter → 입력한 값·결과가 사라지고 처음 화면으로 돌아가는지 확인")
+        else:
+            note = {"ok": "Enter를 눌러도 새로고침되지 않음",
+                    "handled": "Enter를 누르면 화면이 다시 열리지만 처음 화면과 달라, 주소의 값으로 결과를 표시하는 것으로 보임",
+                    "moved": "Enter를 누르면 다른 화면으로 이동함"}.get(probe, "Enter 키 동작은 확인하지 못함")
+            self.add("수동", where, f"<form>에 제출 처리(action·onsubmit·submit 리스너)는 없지만 '{via}' 버튼 클릭으로 동작함({note})",
+                     f"{fstep} → 입력칸에서 Enter를 눌러도 같은 동작을 하는지 직접 확인")
+
+    def _enter_probe(self, idx, name, fresh_text):
+        """
+        폼의 입력칸에서 Enter를 눌러, 폼이 그대로 전송되어 처음 화면으로 새로고침되는지 확인.
+        'reload'(처음 화면으로 새로고침) | 'handled'(다시 열리지만 결과 표시) | 'moved'(다른 화면) | 'ok'(그대로) | 'skip'(확인 못함)
+        """
+        try:
+            if not self.page.evaluate(ENTER_TARGET_JS, [idx, name]):
+                return "skip"
+            base = self.page.url.split("#")[0].split("?")[0]
+            self.page.evaluate("() => { window.__qaAlive = 2 }")
+            self.page.locator("[data-qa-enter]").first.press("Enter", timeout=2000)
+            self.page.wait_for_timeout(CLICK_WAIT_MS + 200)
+            self.wait_settled()
+            try:
+                alive = self.page.evaluate("() => window.__qaAlive === 2")
+            except PWError:
+                alive = False
+            if alive:
+                return "ok"
+            if self.page.url.split("#")[0].split("?")[0] != base:
+                return "moved"   # 다른 화면으로 옮겨 감(의도된 이동일 수 있음)
+            now = set(self.page.evaluate(TEXT_LINES_JS))
+            # 같은 주소로 다시 열렸고 글자가 처음 화면과 같으면 입력한 값·결과가 사라진 것. 다르면 주소의 값으로 결과를 그리는 화면
+            return "reload" if fresh_text is not None and now == fresh_text else "handled"
+        except PWError:
+            return "skip"
 
     # ── 체험 계정 ──
     def _prepare_demo(self, idx, where, flow):
@@ -2492,14 +2644,24 @@ class FileTester:
         else:
             self.add("수동", where, "폼 입력값 검증(빈 값·잘못된 형식)은 자동 미검사",
                      f"{open_step} → {kind}({disp})를 빈 값으로 제출 → 안내 문구 확인 → 정상 값으로 제출 → 결과 확인")
-        if struct and struct["noTarget"]:
-            self.add(lv("주의"), where, "action·onsubmit·submit 리스너가 모두 없는 <form> 태그 (전송 대상 불명)",
-                     f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
+        # [v4] '전송 대상 불명'은 제출해 본 뒤에 판정(버튼 클릭으로 실제 동작하는 폼은 제외) → _judge_no_target
+        no_target = bool(struct and struct["noTarget"])
+        fresh_text = None
+        if no_target:
+            try:
+                fresh_text = set(self.page.evaluate(TEXT_LINES_JS))   # 값 입력 전 화면 글자(Enter 새로고침 판정용)
+            except PWError:
+                pass
         is_login = authlike and not peek["signup"]
         before_state = self._login_state(key) if authlike else None
-        info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"], demo=is_login and bool(peek["pw"]),
-                                                       where=where, flow=fstep, post_auth=authlike,
-                                                       fill_opt={"smart": True} if is_auth else None, steps=is_login)
+        try:
+            info, changed, new_text, _ = self._submit_form(idx, precheck=peek["signup"], demo=is_login and bool(peek["pw"]),
+                                                           where=where, flow=fstep, post_auth=authlike,
+                                                           fill_opt={"smart": True} if is_auth else None, steps=is_login)
+        except PWError:
+            if no_target:
+                self.add(lv("주의"), where, NO_TARGET_MSG, f"{fstep} → 제출 후 무슨 일이 일어나야 하는지 기획과 비교")
+            raise
         demo = self.last_demo if is_login else None
         if self.page.url.startswith("chrome-error"):
             self.add("오류", where, "제출 후 페이지 이동 실패", f"{fstep} → 이동한 화면이 열리는지 확인")
@@ -2522,7 +2684,7 @@ class FileTester:
                          "제출해도 반응 없음 · 값을 자동 입력해 제출했으나 주소·화면 구조·겉모습·알림 모두 변화 없음",
                          f"{fstep} → 결과 화면·메시지가 있는지 확인" + self._submit_detail())
         elif authlike:
-            fail = self._login_fail(new_text, dialogs, key)
+            fail = self._login_fail(new_text, dialogs, key, before_state)
             if demo:
                 self._demo_result(where, fstep, demo, fail, key)   # 체험 계정은 되어야 하므로 실패면 바로 기록
             elif fail and not peek["signup"]:
@@ -2537,6 +2699,8 @@ class FileTester:
                 # [v2] 인증 폼·클릭 후 나타난 로그인 창·인증창을 거친 제출: 로그인 상태 표시까지 나타났는지 확인
                 self._login_result(where, fstep, key, before_state,
                                    "가입" if peek["signup"] else ("인증" if is_auth else "로그인"))
+        if no_target:
+            self._judge_no_target(idx, peek["name"], where, fstep, info, changed, fresh_text, lv)
         if authlike:   # [v2] 다음 폼 검사가 로그인 상태에 영향받지 않도록 원래(비로그인) 상태로
             try:
                 self._logout_if_available()
@@ -2668,7 +2832,7 @@ class FileTester:
 
         # ── 로그아웃 → 원래대로 ──
         try:
-            label = self.page.evaluate(LOGOUT_TAG_JS)
+            label = self._find_logout()   # [v5] 마이페이지에만 있는 로그아웃 버튼도 찾음
             if not label:
                 self.add("수동", where, "로그아웃 버튼을 찾지 못해 '로그아웃 후 원래대로' 검사 생략",
                          flow + " → 로그아웃 → 로그인·회원가입 버튼이 돌아오고 입력칸이 비어 있는지 확인")
@@ -2821,7 +2985,7 @@ class FileTester:
                 info, changed, new_text, _ = self._submit_form(login_idx, mode, where=where, flow=flow, post_auth=True,
                                                                fill_opt=smart, steps=True)
                 rest = self.flush_errors(where, flow)
-                fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], l["name"])
+                fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], l["name"], guest_state)
                 if not fail and prev_fail:
                     # 같은 실패 문구가 그대로 떠 있으면 '새 문구'로 안 잡히므로 화면에 남아 있는지 직접 확인
                     lines = self.page.evaluate(TEXT_LINES_JS)
@@ -2912,7 +3076,7 @@ class FileTester:
             before = self._login_state(key)
             info, changed, new_text, _ = self._submit_form(idx, where=where, flow=flow, post_auth=True, fill_opt={"smart": True})
             rest = self.flush_errors(where, flow)
-            fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], key)
+            fail = self._login_fail(new_text, [v for k, v in rest if k == "dialog"], key, before)
             if fail:
                 self.add("수동", where, f"비회원 인증: 테스트 값으로 제출 시 실패 문구 표시: '{fail}'", flow + " → 직접 확인")
             elif changed or rest:
@@ -3048,8 +3212,36 @@ class FileTester:
                 pass
             self.events = []
 
+    def _find_logout(self):
+        """
+        보이는 로그아웃 버튼에 번호표(data-qa-logout)를 붙이고 그 글자를 돌려줌.
+        [v5] 지금 화면에 없고 로그인 버튼도 보이지 않으면(=로그인 상태로 보이면) '마이페이지'·'내 정보' 같은 메뉴를 눌러 그 화면에서 찾음.
+        """
+        label = self.page.evaluate(LOGOUT_TAG_JS)
+        if label or not LOGOUT_SEARCH:
+            return label
+        if (self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-guestmark", LOGIN_TRIGGER_RE, None])
+                or self.page.evaluate(FIND_TRIGGER_JS, ["data-qa-guestmark", LOGIN_TRIGGER_LOOSE_RE, None])):
+            return None   # 로그인 버튼이 보임 → 비로그인 상태이므로 찾으러 다니지 않음
+        tried = []
+        for _ in range(LOGOUT_SEARCH_MAX):
+            trig = self.page.evaluate(ACCOUNT_LINK_JS, [ACCOUNT_LINK_RE, tried])
+            if not trig:
+                break
+            tried.append(trig)
+            try:
+                self.page.locator("[data-qa-account]").first.click(timeout=2000)
+                self.page.wait_for_timeout(CLICK_WAIT_MS)
+                self.wait_settled()
+            except PWError:
+                continue
+            label = self.page.evaluate(LOGOUT_TAG_JS)
+            if label:
+                return label
+        return None
+
     def _logout_if_available(self):
-        if self.page.evaluate(LOGOUT_TAG_JS):
+        if self._find_logout():
             self.page.locator("[data-qa-logout]").first.click(timeout=2000)
             self.wait_settled()
 
