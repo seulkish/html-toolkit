@@ -14,8 +14,15 @@ HTML 파일 난이도(Grade) 평가 + 주요 기능 추출 스크립트
      - 예) 결제   → 간편결제 / 카드 / 계좌이체 / 상품권 / 포인트 / 쿠폰 ...
      - 흐름마다 'AI가 시뮬레이션을 짤 때 확인할 순서(체크포인트)'를 함께 기록한다.
   6. 결과를 result.csv에 기록한다.
-     (no, filename, grade, grade_memo, functions, flow_count,
+     (no, id, filename, new_filename, grade, grade_memo, functions, flow_count,
       function_evidence, simulation_flows)
+  7. [rename 연동] result.csv를 rename_html.py가 그대로 읽을 수 있게 한다.
+     - id           : 파일명을 "_"로 나눈 맨 앞 숫자 (rename_html.py가 파일을 찾는 번호)
+     - new_filename : 바꿀 파일명. 규칙 {id 3자리}_{날짜}_{작성자}.html 로 자동으로 채운다.
+                      예) 151_20261022_sklee.html
+                      날짜는 id 구간마다 다르므로 아래 설정값 NEW_NAME_DATES에 적어 둔다.
+                      표에 없는 id는 빈칸으로 두고, result.csv에 직접 적은 값이 있으면 그대로 둔다.
+     이어서 'python rename_html.py'를 실행하면 new_filename대로 파일명이 바뀐다.
 
 필요한 라이브러리:  pip install -r requirements.txt
 """
@@ -30,7 +37,19 @@ from bs4 import BeautifulSoup
 # 설정값 (필요하면 여기만 바꾸면 됩니다)
 # ──────────────────────────────────────────────
 HTML_FOLDER = "html_input_files"          # HTML 파일이 들어 있는 폴더
-OUTPUT_CSV = "result.csv"     # 결과 CSV 파일명
+OUTPUT_CSV = "result.csv"     # 결과 CSV 파일명 (rename_html.py의 CSV_FILE과 같아야 함)
+
+# [rename 연동] new_filename 자동 채움 규칙:  {id 3자리}_{날짜}_{작성자}.html
+#   예) id 151 → 151_20261022_sklee.html
+#   - 날짜는 id 구간마다 다르므로 (시작 id, 끝 id, "날짜")를 한 줄씩 적습니다. 구간이 늘면 줄을 추가하세요.
+#   - 표에 있는 id는 실행할 때마다 규칙대로 채웁니다. (result.csv에 다른 값을 적어 두었어도 규칙이 우선)
+#   - 표에 없는 id는 채우지 않습니다. result.csv에 직접 적어 둔 값이 있으면 그 값을 그대로 둡니다.
+#   - 구간이 겹치면 위에 적은 줄이 우선입니다. 자동 채움을 끄려면 NEW_NAME_DATES = [] 로 비워 두세요.
+NEW_NAME_AUTHOR = "sklee"
+NEW_NAME_DATES = [
+    (151, 170, "20261022"),
+    (171, 200, "20261023"),
+]
 
 # 기능 사전: {기능명: [이 기능이 있다고 볼 단어들]}
 #   - 위에서부터 순서대로 functions 열에 적힙니다.
@@ -708,6 +727,120 @@ def get_html_files(folder):
 
 
 # ──────────────────────────────────────────────
+# 6) [rename 연동] rename_html.py가 result.csv를 그대로 쓸 수 있게 하는 열 (id, new_filename)
+# ──────────────────────────────────────────────
+def get_file_id(filename):
+    """
+    id 열: 파일명을 "_"로 나눈 맨 앞 숫자. (rename_html.py와 같은 규칙)
+      '1_test_test.html' → 1 / '001_20261019_sklee.html' → 1 / 'note.html' → '' (빈칸)
+    """
+    head = filename.split("_")[0].strip()
+    return int(head) if head.isdecimal() else ""    # ①, ² 같은 글자는 숫자로 보지 않음
+
+
+def make_new_filename(file_id):
+    """
+    규칙대로 새 파일명을 만든다:  {id 3자리}_{날짜}_{작성자}.html
+      151 → '151_20261022_sklee.html' / 날짜 표(NEW_NAME_DATES)에 없는 id → '' (빈칸)
+    """
+    if file_id == "":
+        return ""
+    for start, end, date in NEW_NAME_DATES:
+        if start <= file_id <= end:
+            return f"{file_id:03d}_{date}_{NEW_NAME_AUTHOR}.html"
+    return ""
+
+
+def carry_over_new_filenames(csv_path, html_files):
+    """
+    이전 result.csv에 적어 둔 new_filename을 이어받는다.
+    (다시 실행할 때 직접 적은 새 이름이 지워지지 않게 하기 위함)
+      ① 파일명이 그대로면 그 행의 값을 그대로 쓴다.
+      ② 파일명이 바뀌었으면 같은 id끼리 이어 준다. (예: 1_a.html → 001_b.html)
+         같은 id가 여러 개라 어느 쪽인지 알 수 없으면 이어받지 않는다.
+    돌려주는 값: {지금 파일명: 이어받을 new_filename}
+    """
+    if not os.path.isfile(csv_path):
+        return {}
+    for enc in ("utf-8-sig", "cp949"):       # 엑셀에서 다시 저장한 CSV(cp949)도 읽는다
+        try:
+            with open(csv_path, newline="", encoding=enc) as f:
+                old_rows = list(csv.DictReader(f))
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        print(f"[오류] 기존 '{csv_path}'를 읽을 수 없습니다. (utf-8 / cp949 모두 실패)")
+        print("       적어 둔 new_filename이 지워질 수 있어 멈춥니다. 파일을 옮기거나 지운 뒤 다시 실행하세요.")
+        raise SystemExit(1)
+
+    old = {}                                 # {이전 파일명: 적어 둔 new_filename}
+    for row in old_rows:
+        name = (row.get("filename") or "").strip()
+        if name:
+            old[name] = (row.get("new_filename") or "").strip()
+
+    kept = {name: old[name] for name in html_files if name in old}       # ① 파일명이 그대로
+
+    gone, fresh = {}, {}                     # ② 파일명이 바뀐 것만 id로 묶는다
+    for name, new_name in old.items():       #    gone : 사라진 이전 파일의 new_filename
+        if name not in kept and new_name:
+            gone.setdefault(get_file_id(name), []).append(new_name)
+    for name in html_files:                  #    fresh: 이전 CSV에 없던 지금 파일
+        if name not in kept:
+            fresh.setdefault(get_file_id(name), []).append(name)
+    for file_id, names in fresh.items():
+        if file_id != "" and len(names) == 1 and len(gone.get(file_id, [])) == 1:
+            kept[names[0]] = gone[file_id][0]
+    return kept
+
+
+def short_list(items, limit=5):
+    """안내 문구용으로 줄여 쓴다: '1, 2, 3 외 5개'"""
+    shown = ", ".join(str(item) for item in items[:limit])
+    return shown + (f" 외 {len(items) - limit}개" if len(items) > limit else "")
+
+
+def fill_new_filenames(html_files, carried):
+    """
+    파일마다 new_filename 값을 정한다.
+      ① 날짜 표(NEW_NAME_DATES)에 있는 id → 규칙대로 만든 이름 (항상 규칙이 우선)
+      ② 표에 없는 id, id가 없는 파일 → 이전 result.csv에 적어 둔 값(carried), 없으면 빈칸
+      ※ 같은 id의 파일이 여러 개면 어느 파일에 붙일 이름인지 알 수 없어 규칙을 적용하지 않는다.
+    돌려주는 값: ({파일명: new_filename}, [실행이 끝난 뒤 보여 줄 안내 문구])
+    """
+    files_of = {}                            # {id: [그 id를 가진 파일명]}
+    for name in html_files:
+        files_of.setdefault(get_file_id(name), []).append(name)
+
+    names = {}
+    by_rule, replaced, blank = 0, [], []
+    for name in html_files:
+        file_id = get_file_id(name)
+        typed = carried.get(name, "")        # 이전 result.csv에 적혀 있던 값
+        rule = make_new_filename(file_id) if len(files_of[file_id]) == 1 else ""
+        if rule:
+            by_rule += 1
+            if typed and typed != rule:
+                replaced.append(file_id)
+        names[name] = rule or typed
+        if not names[name]:
+            blank.append(name)
+
+    duplicated = [f"{file_id}번({', '.join(files)})" for file_id, files in files_of.items()
+                  if len(files) > 1 and make_new_filename(file_id)]
+    typed_kept = len(html_files) - by_rule - len(blank)
+    notes = [f"new_filename: 규칙으로 채움 {by_rule}개 / 적어 둔 값 유지 {typed_kept}개 / 빈칸 {len(blank)}개"]
+    if replaced:
+        notes.append(f"  · result.csv에 있던 값이 규칙과 달라 규칙대로 바꾼 id: {short_list(replaced)}")
+    if duplicated:
+        notes.append(f"  · 같은 id의 파일이 여러 개라 규칙을 적용하지 않음: {short_list(duplicated)}")
+    if blank:
+        notes.append(f"  · 빈칸으로 남은 파일(날짜 표에 없는 id이거나 id 없음): {short_list(blank)}")
+    return names, notes
+
+
+# ──────────────────────────────────────────────
 # 실행 부분
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
@@ -719,8 +852,13 @@ if __name__ == "__main__":
     html_files = get_html_files(HTML_FOLDER)
     print(f"'{HTML_FOLDER}' 폴더에서 HTML 파일 {len(html_files)}개를 찾았습니다.\n")
 
+    # [rename 연동] new_filename 정하기: 규칙(NEW_NAME_DATES)이 먼저, 표에 없으면 이전 result.csv에 적어 둔 값
+    carried = carry_over_new_filenames(OUTPUT_CSV, html_files)
+    new_names, name_notes = fill_new_filenames(html_files, carried)
+
     # 2~5. 파일을 하나씩 평가해서 결과 모으기
-    FIELDS = ["no", "filename", "grade", "grade_memo", "functions", "flow_count",
+    FIELDS = ["no", "id", "filename", "new_filename",        # id, new_filename: rename_html.py가 읽는 열
+              "grade", "grade_memo", "functions", "flow_count",
               "function_evidence", "simulation_flows"]
     rows = []
     for no, filename in enumerate(html_files, start=1):
@@ -733,7 +871,8 @@ if __name__ == "__main__":
                 "flow_count": 0, "function_evidence": "", "simulation_flows": "",
             }
 
-        rows.append({"no": no, "filename": filename, **result})
+        rows.append({"no": no, "id": get_file_id(filename), "filename": filename,
+                     "new_filename": new_names[filename], **result})
         print(f"[{no}] {filename} → {result['grade']}  ({result['grade_memo']})")
         print("    " + result["functions"].replace("\n", "\n    "))
 
@@ -744,3 +883,5 @@ if __name__ == "__main__":
         writer.writerows(rows)
 
     print(f"\n완료! 결과가 '{OUTPUT_CSV}'에 저장되었습니다.")
+    print("\n".join(name_notes))
+    print("파일명을 바꾸려면 'python rename_html.py'를 실행하세요. (new_filename이 빈칸인 행은 바꾸지 않습니다)")
