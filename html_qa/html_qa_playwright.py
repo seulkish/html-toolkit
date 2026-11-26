@@ -124,7 +124,7 @@ LOGIN_CHAIN_TEST = True      # 회원가입 폼 + 로그인 폼이 있으면 '�
 TEST_ACCOUNT = {
     "id": "hello",                # 아이디 칸
     "email": "hello@naver.com",   # 이메일 칸
-    "password": "hello123456",    # 비밀번호·비밀번호 확인 칸
+    "password": "Hello123456",    # 비밀번호·비밀번호 확인 칸(대문자+소문자+숫자 3종류: '3종류 이상 조합' 규칙 통과)
     "name": "안뇽",               # 이름·닉네임 칸
     "phone": "010-1234-5678",     # 전화번호 칸
 }
@@ -1013,15 +1013,23 @@ AUTH_CODE_JS = r"""
   if (!input) return null;
   input.setAttribute('data-qa-auth-code', '1');
   const NOT_OK = /재전송|다시|resend|받기|요청|발송|취소|닫기|중복|cancel|close/i;
-  // 확인 버튼: ① 입력칸이 속한 폼의 제출 버튼 ② 가까운 상위 요소의 '확인·완료'류 버튼
+  // 확인 버튼: ⓪ 인증번호 칸만 감싼 묶음(같은 줄) 안의 '확인·완료'류 버튼 ① 입력칸이 속한 폼의 제출 버튼 ② 가까운 상위 요소의 '확인·완료'류 버튼
+  const okIn = (root) => [...root.querySelectorAll('button, input[type=button], input[type=submit], [role=button], [onclick], a')]
+    .find(e => vis(e) && !e.disabled && ox.test(txt(e)) && !NOT_OK.test(txt(e))) || null;
+  // [v6] 가입 폼처럼 입력칸이 여러 개인 폼 안의 인증번호 칸: 폼의 제출 버튼('가입하기')이 아니라 그 칸 옆의 '확인' 버튼이 인증 확인 버튼
+  //      (인증을 끝내지 않은 채 '가입하기'를 눌러 '휴대폰 인증을 완료해주세요'에 막히던 문제)
+  //      다른 입력칸이 섞인 묶음·폼 자체까지는 올라가지 않음 → 인증번호 칸만 있는 폼(2단계 인증 등)은 기존대로 ①
+  const FIELD_SKIP = ['hidden', 'checkbox', 'radio', 'submit', 'button', 'reset', 'image', 'file'];
+  const hasOtherField = (root) => [...root.querySelectorAll('input, textarea, select')]
+    .some(e => e !== input && vis(e) && !FIELD_SKIP.includes((e.type || '').toLowerCase()));
   let ok = null;
-  if (input.form) ok = [...input.form.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')]
+  for (let row = input.parentElement, k = 0; k < 4 && row && row !== input.form && row !== document.body && !ok && !hasOtherField(row); k++, row = row.parentElement) ok = okIn(row);
+  if (!ok && input.form) ok = [...input.form.querySelectorAll('button:not([type]), button[type=submit], input[type=submit]')]
     .find(e => vis(e) && !e.disabled && !NOT_OK.test(txt(e))) || null;
   let box = input;
   for (let k = 0; k < 4 && box.parentElement && !ok; k++) {
     box = box.parentElement;
-    ok = [...box.querySelectorAll('button, input[type=button], input[type=submit], [role=button], [onclick], a')]
-      .find(e => vis(e) && !e.disabled && ox.test(txt(e)) && !NOT_OK.test(txt(e)));
+    ok = okIn(box);
   }
   if (ok) ok.setAttribute('data-qa-auth-ok', '1');
   // 인증번호가 적혀 있을 수 있는 주변 글자(창 또는 입력칸을 감싼 폼)
