@@ -63,6 +63,13 @@ v5에서 바뀐 점
     - 로그인 실패 문구 판정: 로그인 폼이 사라지고 로그인됐다는 근거(로그아웃 버튼·새 로그인 표시·'로그인했습니다' 안내)가 있으면
       옮겨 간 화면 본문의 '실패' 같은 낱말을 로그인 실패 문구로 보지 않음
     - 로그아웃: 버튼이 지금 화면에 없으면 '마이페이지'·'내 정보' 같은 메뉴를 눌러 그 화면에서 찾아 로그아웃(LOGOUT_SEARCH)
+
+v6에서 바뀐 점
+    - 캘린더 이전·다음 버튼 찾기: '← 이전'·'다음 →'처럼 화살표가 붙은 글자, data-action="prev-month" 같은 data-* 값,
+      onclick="prevMonth()" 같은 onclick 내용도 인식. class·data 값의 'preview'(미리보기)는 '이전'으로 보지 않음
+      ('← 이전' 버튼을 못 찾아, 눌러 보지도 않고 '지금 보이는 달만 있음 → 불일치'로 적던 오탐)
+    - 이전·다음 버튼을 하나도 찾지 못한 캘린더는 재지 않은 범위를 '불일치'로 단정하지 않고 '확인 필요'(주의)로 기록
+      (CALENDAR_NO_NAV = "불일치"로 바꾸면 예전처럼 '수정'으로 기록)
 """
 
 import calendar
@@ -108,6 +115,7 @@ CALENDAR_START = "2026-10"   # 보여야 하는 첫 달
 CALENDAR_END = "2027-06"     # 보여야 하는 마지막 달
 CALENDAR_MODE = "include"      # exact: 이 범위 밖으로는 못 가야 함 / include: 이 범위가 모두 보이기만 하면 됨
 CALENDAR_MAX_STEPS = 24      # '이전'·'다음'을 최대 몇 번 눌러 볼지(넘으면 '제한 없음')
+CALENDAR_NO_NAV = "확인 필요"  # 이전·다음 버튼을 하나도 못 찾은 캘린더: "확인 필요"=범위를 재지 못했으므로 '주의' / "불일치"=예전 방식(지금 보이는 달만 있다고 보고 '수정')
 MOVE_REQUIREMENT_MISMATCH = False   # True면 캘린더 [불일치] 파일도 html_edit 폴더로 이동
 MOVE_FIX = True              # True면 구분='수정' 행이 하나라도 있는 파일은 무조건 html_edit 폴더로 이동
 CLICK_DEPTH = 2              # 2: 클릭 후 나타난 버튼(모달·드롭다운·탭 내부)까지 자동 클릭. 1: 기존 방식
@@ -724,11 +732,22 @@ CAL_SCAN_JS = r"""
   const attrs = (el) => ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '') + ' ' +
     (typeof el.className === 'string' ? el.className : (el.className && el.className.baseVal) || '') + ' ' + (el.id || '')).toLowerCase();
   const clickable = (el) => el.matches('a, button, [role=button], [onclick], input[type=button]') || getComputedStyle(el).cursor === 'pointer';
+  // [v6] 보조 단서: data-* 값(검수기가 붙인 data-qa-* 제외)과 onclick 내용. 예: data-action="prev-month", onclick="prevMonth()"
+  const extra = (el) => ([...el.attributes].filter(x => /^data-(?!qa-)/.test(x.name)).map(x => x.value).join(' ') + ' ' +
+    (el.getAttribute('onclick') || '')).toLowerCase();
+  // 글자에 prev·이전만 있으면 'prev', next·다음만 있으면 'next'. 'preview'(미리보기)는 prev로 보지 않음
+  const dirOf = (s) => { const p = /prev(?!iew)|이전/.test(s), n = /next|다음/.test(s); return p === n ? '' : (p ? 'prev' : 'next'); };
+  // [v6] 글자 앞뒤의 화살표·공백을 떼어 냄: '← 이전' → '이전', '다음 →' → '다음'
+  const bare = (t) => t.replace(/^[\s<>‹›«»◀◁▶▷◄►❮❯〈〉←→⬅➡\uFE0F]+|[\s<>‹›«»◀◁▶▷◄►❮❯〈〉←→⬅➡\uFE0F]+$/g, '');
+  // 화살표만 있는 글자('‹', '◀', '>>')의 방향
+  const symDir = (t) => { if (!t || bare(t) !== '') return ''; const l = /[<‹«◀◁◄❮〈←⬅]/.test(t), r = /[>›»▶▷►❯〉→➡]/.test(t); return l === r ? '' : (l ? 'prev' : 'next'); };
   const isDir = (el, dir) => {
     const t = (el.innerText || el.value || '').trim().toLowerCase();
+    const w = bare(t);
     const a = attrs(el);
-    if (dir === 'prev') return /^(<|‹|«|◀|◁|〈|←|<<|이전|이전 ?달|prev|previous)$/.test(t) || (/prev|이전/.test(a) && !/next|다음/.test(a)) || (t === '' && /left/.test(a));
-    return /^(>|›|»|▶|▷|〉|→|>>|다음|다음 ?달|next)$/.test(t) || (/next|다음/.test(a) && !/prev|이전/.test(a)) || (t === '' && /right/.test(a));
+    const byAttr = dirOf(a) || dirOf(extra(el));
+    if (dir === 'prev') return symDir(t) === 'prev' || /^(이전|이전 ?(달|월)|지난 ?(달|월)|prev|previous|prev(ious)? month)$/.test(w) || byAttr === 'prev' || (t === '' && /left/.test(a));
+    return symDir(t) === 'next' || /^(다음|다음 ?(달|월)|next|next month)$/.test(w) || byAttr === 'next' || (t === '' && /right/.test(a));
   };
   const findBtn = (box, title, dir) => {
     for (const el of box.querySelectorAll('a, button, [role=button], [onclick], input[type=button], span, i, div, svg')) {
@@ -3350,6 +3369,15 @@ class FileTester:
                     continue
                 flow = (f"{self.open_step(url)} → 캘린더('{c['text']}')에서 '이전'을 끝까지 눌러 첫 달 확인"
                         f" → '다음'을 끝까지 눌러 마지막 달 확인")
+                if not (c["prev"] or c["next"]) and CALENDAR_NO_NAV != "불일치":
+                    # [v6] 이전·다음 버튼을 하나도 찾지 못함: 눌러 보지 않은 범위를 '불일치'로 단정하지 않음
+                    self.cal_status.add("확인 필요")
+                    self.add("요구사항", where,
+                             f"[확인 필요] 이전·다음 버튼을 찾지 못해 범위를 재지 못함(현재 표시 {c['month']})"
+                             " — 달을 옮길 수 없는 캘린더이거나 버튼을 인식하지 못한 경우",
+                             f"{self.open_step(url)} → 캘린더('{c['text']}')에 달을 옮기는 버튼이 있는지 확인"
+                             f" → 있으면 끝까지 눌러 첫 달·마지막 달 확인 → 요구 {CALENDAR_START} ~ {CALENDAR_END}과 비교")
+                    continue
                 lo, lo_blocked = (self._cal_probe(url, c["i"], "prev") if c["prev"] else (c["month"], True))
                 hi, hi_blocked = (self._cal_probe(url, c["i"], "next") if c["next"] else (c["month"], True))
                 if lo is None or hi is None:
